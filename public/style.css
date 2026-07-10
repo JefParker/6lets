@@ -708,9 +708,15 @@ header {
 }
 
 .flip-card[data-state="0"] .flip-card-front { opacity: 1; pointer-events: auto; }
+.flip-card[data-state="0"] .flip-card-back { opacity: 0; pointer-events: none; }
 .flip-card[data-state="0"] .flip-card-third { opacity: 0; pointer-events: none; }
 
+.flip-card[data-state="1"] .flip-card-front { opacity: 0; pointer-events: none; }
+.flip-card[data-state="1"] .flip-card-back { opacity: 1; pointer-events: auto; }
+.flip-card[data-state="1"] .flip-card-third { opacity: 0; pointer-events: none; }
+
 .flip-card[data-state="2"] .flip-card-front { opacity: 0; pointer-events: none; }
+.flip-card[data-state="2"] .flip-card-back { opacity: 0; pointer-events: none; }
 .flip-card[data-state="2"] .flip-card-third { opacity: 1; pointer-events: auto; }
 
 .leaderboard-row {
