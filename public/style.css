@@ -610,6 +610,14 @@ header {
     grid-template-columns: repeat(11, 1fr);
     align-items: flex-end;
 }
+
+/* Normalize bars inside flip cards to fit the allotted 180px height without overflowing */
+.flip-card .bar-container {
+    height: 40px;
+}
+.flip-card .stats-text {
+    font-size: 0.95rem !important;
+}
 .bar-wrapper {
     display: flex;
     justify-content: center;
