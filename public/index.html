@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>6Lets</title>
+    <meta name="description" content="A daily word puzzle. Guess the 6-letter word in 10 tries.">
+    
+    <!-- PWA / iOS meta tags -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+    <link rel="icon" type="image/x-icon" href="img/6lets.ico">
+    <link rel="icon" type="image/png" sizes="192x192" href="img/6lets192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="img/6lets512.png">
+
+    <link rel="stylesheet" href="style.css?v=36">
+</head>
+<body>
+    <div id="game-container">
+        <header>
+            <div id="header-left" style="position: absolute; left: 16px; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px;">
+                <button id="admin-btn-header" aria-label="Admin Dashboard" style="display: none; background: transparent; border: none; color: var(--header-color); cursor: pointer; padding: 0; align-items: center; justify-content: center;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m12 14 4-4"/>
+                        <path d="M3.34 16a10 10 0 1 1 17.32 0"/>
+                    </svg>
+                </button>
+                <button id="help-btn-header" aria-label="Help">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                </button>
+                <button id="history-btn-header" aria-label="History">
+                    <div id="history-btn-text" style="width: 22px; height: 22px; border: 2px solid currentColor; border-radius: 4px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 14px;">0</div>
+                </button>
+            </div>
+            <div class="title" style="font-size: 28px;">SIXLETTERS</div>
+            <div id="header-right" style="position: absolute; right: 16px; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px;">
+                <div id="guess-counter" style="position: static; font-weight: 500;">0/10</div>
+                <button id="settings-btn-header" aria-label="Settings" style="background: transparent; color: var(--header-color); border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <div id="board-container">
+            <div id="board"></div>
+        </div>
+
+        <div id="keyboard-container">
+            <div id="keyboard"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="hidden"></div>
+    
+    <div id="message-toast" class="hidden"></div>
+
+    <div id="stats-modal" class="modal hidden">
+        <button class="close-btn" aria-label="Close">✖</button>
+        <div id="stats-word-container"></div>
+        <div class="share-actions">
+            <button id="share-btn">Share</button>
+        </div>
+        <div class="stats-graph" id="stats-graph">
+            <div class="bar-container" id="all-bars-container">
+                <!-- Populated by JS -->
+            </div>
+            <div class="line"></div>
+            <div class="guess-labels">
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>✖</span>
+            </div>
+        </div>
+        <div class="stats-text" id="stats-text"></div>
+        <div id="stats-leaderboard-container" style="width: 100%; margin-top: 20px; display: none;">
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;">Top Players</div>
+            <div id="stats-leaderboard" style="font-size: 0.9rem; text-align: left; max-height: 150px; overflow-y: auto;">
+                <div style="text-align: center; color: inherit;">Loading...</div>
+            </div>
+        </div>
+        <div class="next-game-text" style="margin-top: 20px;">New Games 12AM & 12PM PT</div>
+    </div>
+
+    <div id="history-modal" class="modal hidden">
+        <button id="close-history-x-btn" class="close-btn" aria-label="Close">✖</button>
+        <div id="history-word-container" class="bouncy-word-container">
+            <!-- Populated by JS -->
+        </div>
+        <div class="stats-text" style="font-size: 1.2rem; margin-bottom: 25px; line-height: 1.5;">
+            <div id="hist-avg">Average guesses: 0</div>
+            <div id="hist-completed">Completed games: 0</div>
+            <div id="hist-unfinished">Unfinished games: 0</div>
+            <div id="hist-streak">Streak: 0 completed puzzles</div>
+        </div>
+        
+        <div class="stats-text" style="font-size: 1.2rem; margin-bottom: 15px;">
+            Recent games
+        </div>
+        <div id="recent-games-list" style="font-size: 1.1rem; margin-bottom: 25px; text-align: center; line-height: 1.6;">
+            <!-- Populated by JS -->
+        </div>
+
+        <button id="close-history-btn">Close</button>
+    </div>
+
+    <div id="name-prompt-modal" class="modal hidden" style="padding-top: 40px; text-align: center;">
+        <button id="close-name-prompt-btn" class="close-btn" aria-label="Close">✖</button>
+        <div id="prompt-word-container" class="bouncy-word-container" style="margin-bottom: 15px;"></div>
+        <p style="margin-bottom: 20px; font-size: 1.1rem; color: var(--modal-color);">Enter a display name for the leaderboard:</p>
+        <input type="text" id="prompt-display-name-input" placeholder="Your Name" style="width: 100%; font-size: 1.1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 20px;">
+        <div style="display: flex; gap: 10px; justify-content: center;">
+            <button id="prompt-save-name-btn" style="background: darkred; color: white; border: none; padding: 10px 20px; font-size: 1.1rem; cursor: pointer; border-radius: 4px; flex-grow: 1;">Save</button>
+            <button id="prompt-skip-btn" style="background: #ccc; color: #333; border: none; padding: 10px 20px; font-size: 1.1rem; cursor: pointer; border-radius: 4px;">Skip</button>
+        </div>
+    </div>
+
+    <div id="new-game-modal" class="modal hidden" style="padding-top: 40px; text-align: center;">
+        <button id="close-new-game-btn" class="close-btn" aria-label="Close">✖</button>
+        <div id="new-game-word-container" class="bouncy-word-container" style="margin-bottom: 15px;"></div>
+        <p style="margin-bottom: 20px; font-size: 1.1rem; color: var(--modal-color);">A new game is available!</p>
+        <div style="display: flex; justify-content: center;">
+            <button id="play-new-game-btn" style="background: var(--key-eval-correct); color: white; border: none; padding: 10px 20px; font-size: 1.1rem; cursor: pointer; border-radius: 4px;">Play Now</button>
+        </div>
+    </div>
+
+    <div id="help-modal" class="modal hidden">
+        <div id="help-word-container" class="bouncy-word-container">
+            <!-- Populated by JS for bouncy animation -->
+        </div>
+        <div class="stats-text" style="font-size: 1.2rem; margin-bottom: 25px; line-height: 1.5;">
+            Guess the word in up to ten tries.<br>
+            Each guess must be an actual six-letter word.<br><br>
+            After each guess, the squares will change colors.
+        </div>
+        <ul style="text-align: left; width: 100%; max-width: 300px; margin-bottom: 30px; font-size: 1.2rem; line-height: 1.4; padding-left: 25px;">
+            <li style="margin-bottom: 5px;"><span style="background: black; color: var(--key-eval-correct);">Green</span> is a letter in the word in the right place.</li>
+            <li style="margin-bottom: 5px;"><span style="background: black; color: var(--key-eval-present);">Yellow</span> is a letter in the word, but in the wrong place.</li>
+            <li><span style="background: black; color: #ccc;">Gray</span> is a letter that is not in the word.</li>
+        </ul>
+        <button id="close-help-btn">Begin</button>
+    </div>
+
+    <!-- Admin Login Modal -->
+    <div id="admin-login-modal" class="modal hidden">
+        <button id="close-admin-login-btn" class="close-btn" aria-label="Close">✖</button>
+        <div id="admin-login-word-container" class="bouncy-word-container">
+            <!-- Populated by JS for bouncy animation -->
+        </div>
+        
+        <div style="text-align: left; width: 100%; margin-top: 20px;">
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Username</div>
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="admin-username-input" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; color: #111;" placeholder="Username">
+            </div>
+
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Password</div>
+            <div style="margin-bottom: 20px;">
+                <input type="password" id="admin-password-input" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; color: #111;" placeholder="Password">
+            </div>
+
+            <button id="admin-login-submit-btn" style="width: 100%; background: var(--key-eval-correct); border: none; padding: 12px; font-size: 1.2rem; color: #fff; border-radius: 4px; cursor: pointer; font-weight: bold;">Login</button>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard Modal -->
+    <div id="admin-dashboard-modal" class="modal hidden" style="width: 95%; max-width: 600px; max-height: 90vh; padding: 20px 15px; overflow-y: auto;">
+        <button id="close-admin-dashboard-btn" class="close-btn" aria-label="Close">✖</button>
+        <div id="dashboard-word-container" class="bouncy-word-container" style="margin-bottom: 20px;"></div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
+            <button id="prev-month" style="background: none; border: none; color: var(--modal-color); cursor: pointer; font-size: 1.2rem; padding-right: 15px;">&laquo;</button>
+            <h2 id="month-display" style="margin: 0; font-size: 1.2rem; color: var(--modal-color);"></h2>
+            <button id="next-month" style="background: none; border: none; color: var(--modal-color); cursor: pointer; font-size: 1.2rem; padding-left: 15px;">&raquo;</button>
+        </div>
+        
+        <div id="calendar" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 20px; width: 100%; box-sizing: border-box;">
+            <!-- Days injected via JS -->
+        </div>
+
+        <div id="editor" style="display: none; padding: 5px; border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <h3 id="selected-date-display" style="margin-top: 0; margin-bottom: 15px; color: var(--modal-color);"></h3>
+            <div id="toast" class="toast" style="display: none;"></div>
+            
+            <div class="flip-card" id="am-flip-card" data-state="0">
+                <div class="flip-card-inner">
+                    <div class="flip-card-front" style="background: var(--key-bg); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;">
+                            <label for="am-word" id="am-label" style="font-weight: bold; color: var(--text-color);">AM Word</label>
+                            <span id="am-players" style="font-size: 0.9em; color: var(--text-color); opacity: 0.8;"></span>
+                        </div>
+                        <input type="text" id="am-word" maxlength="6" style="width: 100%; padding: 10px; font-size: 1rem; text-transform: uppercase; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; background: #f9f9f9; color: #111;" placeholder="Enter 6-letter word">
+                        <div class="flip-arrow" data-card="am-flip-card" data-type="AM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                    <div class="flip-card-back">
+                        <div class="stats-graph">
+                            <div class="bar-container" id="am-bars-container"></div>
+                            <div class="line"></div>
+                            <div class="guess-labels">
+                                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>✖</span>
+                            </div>
+                        </div>
+                        <div class="stats-text" id="am-stats-text" style="font-size: 1.1rem; font-weight: bold; margin-top: 5px;"></div>
+                        <div class="flip-arrow" data-card="am-flip-card" data-type="AM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                    <div class="flip-card-third" style="background: var(--key-bg); padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; color: var(--text-color);">AM Leaderboard</h4>
+                        <div id="am-leaderboard" style="overflow-y: auto; height: 110px; font-size: 0.9rem; text-align: left;">
+                            <div style="text-align: center; color: var(--text-color); margin-top: 20px;">Loading...</div>
+                        </div>
+                        <div class="flip-arrow" data-card="am-flip-card" data-type="AM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flip-card" id="pm-flip-card" data-state="0">
+                <div class="flip-card-inner">
+                    <div class="flip-card-front" style="background: var(--key-bg); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;">
+                            <label for="pm-word" id="pm-label" style="font-weight: bold; color: var(--text-color);">PM Word</label>
+                            <span id="pm-players" style="font-size: 0.9em; color: var(--text-color); opacity: 0.8;"></span>
+                        </div>
+                        <input type="text" id="pm-word" maxlength="6" style="width: 100%; padding: 10px; font-size: 1rem; text-transform: uppercase; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; background: #f9f9f9; color: #111;" placeholder="Enter 6-letter word">
+                        <div class="flip-arrow" data-card="pm-flip-card" data-type="PM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                    <div class="flip-card-back">
+                        <div class="stats-graph">
+                            <div class="bar-container" id="pm-bars-container"></div>
+                            <div class="line"></div>
+                            <div class="guess-labels">
+                                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>✖</span>
+                            </div>
+                        </div>
+                        <div class="stats-text" id="pm-stats-text" style="font-size: 1.1rem; font-weight: bold; margin-top: 5px;"></div>
+                        <div class="flip-arrow" data-card="pm-flip-card" data-type="PM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                    <div class="flip-card-third" style="background: var(--key-bg); padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; color: var(--text-color);">PM Leaderboard</h4>
+                        <div id="pm-leaderboard" style="overflow-y: auto; height: 110px; font-size: 0.9rem; text-align: left;">
+                            <div style="text-align: center; color: var(--text-color); margin-top: 20px;">Loading...</div>
+                        </div>
+                        <div class="flip-arrow" data-card="pm-flip-card" data-type="PM">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="save-words-btn" style="width: 100%; padding: 12px; background: var(--key-eval-correct); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 1.1rem; margin-top: 10px; display: none;">Save Words</button>
+        </div>
+        
+        <div style="margin-top: 20px; text-align: left; width: 100%;">
+            <button id="admin-logout-btn" style="padding: 10px 20px; background: darkred; color: white; border: none; border-radius: 4px; cursor: pointer;">Log Out</button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div id="close-settings-x" style="position: absolute; top: 10px; right: 15px; font-size: 1.8rem; cursor: pointer; color: var(--modal-color); line-height: 1; padding: 5px; z-index: 10;">&times;</div>
+        <div id="settings-word-container" class="bouncy-word-container">
+            <!-- Populated by JS for bouncy animation -->
+        </div>
+        
+        <div style="text-align: left; width: 100%; margin-top: 20px;">
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Application Theme</div>
+            <div style="margin-bottom: 20px;">
+                <select id="theme-selector" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; cursor: pointer;">
+                    <option value="original">Original</option>
+                    <option value="wordle">Wordle Classic</option>
+                    <option value="glass-dark">Glass Dark</option>
+                    <option value="arctic-glacier">Arctic Glacier</option>
+                    <option value="botanical-sketchbook">Botanical Sketchbook</option>
+                    <option value="high-stake-vegas">High-Stake Vegas</option>
+                </select>
+            </div>
+
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Display Name</div>
+            <div style="margin-bottom: 20px;">
+                <input type="text" id="display-name-input" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 5px;" placeholder="Your Name">
+                <button id="update-display-name-btn" style="background: darkred; color: white; border: none; padding: 8px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px; display: none;">Update</button>
+            </div>
+
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Player ID</div>
+            <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                <input type="text" id="uuid-input" style="flex-grow: 1; font-family: monospace; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9;">
+                <button id="copy-uuid-btn" aria-label="Copy" style="padding: 10px; background: #eeeeee; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+                <button id="paste-uuid-btn" aria-label="Paste" style="padding: 10px; background: #eeeeee; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                    </svg>
+                </button>
+            </div>
+            
+            <div style="text-align: left; margin-bottom: 20px;">
+                <button id="update-uuid-btn" style="background: darkred; color: white; border: none; padding: 8px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px; display: none;">Update Player ID</button>
+            </div>
+
+            <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Syncing Devices</div>
+            <div style="font-size: 1rem; margin-bottom: 10px;">Want to sync your progress from another device?</div>
+            <ol style="margin: 0; padding-left: 20px; font-size: 1rem; line-height: 1.5; margin-bottom: 20px;">
+                <li><strong>Copy</strong> the Player ID from your other device.</li>
+                <li><strong>Paste</strong> the ID here and tap <strong>Update Player ID</strong>.</li>
+            </ol>
+        </div>
+        
+        <button id="close-settings-btn" style="background: var(--key-bg); border: var(--key-border); padding: 10px 24px; border-radius: 2px; color: var(--key-color); font-size: 1.2rem; cursor: pointer; margin-top: 15px;">Close</button>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <script src="dictionary.js"></script>
+    <script src="script.js?v=40"></script>
+</body>
+</html>
