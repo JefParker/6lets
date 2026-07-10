@@ -334,6 +334,38 @@ function getPuzzleNumber(gameIdStr) {
     return 3298 + offset; 
 }
 
+function autoRecoverStreak(rGames, currentStreak) {
+    if (!rGames || rGames.length === 0) return currentStreak;
+    
+    const completedPuzzles = [];
+    for (let i = 0; i < rGames.length; i++) {
+        const game = rGames[i];
+        if (game.includes("- X guesses")) continue;
+        const match = game.match(/^#(\d+) /);
+        if (match) {
+            completedPuzzles.push(parseInt(match[1]));
+        }
+    }
+    
+    if (completedPuzzles.length === 0) return currentStreak;
+    
+    completedPuzzles.sort((a, b) => b - a);
+    
+    let calcStreak = 1;
+    let expectedNext = completedPuzzles[0] - 1;
+    
+    for (let i = 1; i < completedPuzzles.length; i++) {
+        if (completedPuzzles[i] === expectedNext) {
+            calcStreak++;
+            expectedNext--;
+        } else {
+            break;
+        }
+    }
+    
+    return Math.max(currentStreak, calcStreak);
+}
+
 function checkWinCondition() {
     const lastGuess = guesses[guesses.length - 1];
     if (lastGuess === targetWord) {
@@ -359,8 +391,11 @@ function checkWinCondition() {
         } else if (puzzleNum > lastCompletedPuzzle + 1) {
             currentStreak = 1;
         }
+        
+        currentStreak = autoRecoverStreak(recentGames, currentStreak);
+        
         localStorage.setItem('6lets_streak', currentStreak);
-        localStorage.setItem('6lets_lastCompletedPuzzle', puzzleNum);
+        localStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = currentStreak;
 
@@ -852,40 +887,20 @@ function loadState() {
     let lastCompletedPuzzle = parseInt(localStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
     const currentPuzzle = getPuzzleNumber(gameId);
     
-    // Auto-recover streak from recent games if it was incorrectly lost
-    let calcStreak = 0;
-    let expectedNext = null;
-    const recentGamesStr = localStorage.getItem('6lets_recentGames');
-    if (recentGamesStr) {
-        const rGames = JSON.parse(recentGamesStr);
-        for (let i = 0; i < rGames.length; i++) {
-            const game = rGames[i];
-            const match = game.match(/^#(\d+) /);
-            if (match) {
-                const num = parseInt(match[1]);
-                if (game.includes("- X guesses")) break;
-                if (expectedNext === null) {
-                    calcStreak = 1;
-                    expectedNext = num - 1;
-                } else if (num === expectedNext) {
-                    calcStreak++;
-                    expectedNext = num - 1;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-
     if (gameState === 'playing' && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
         localStorage.setItem('6lets_streak', 0);
         currentStreak = 0;
-        calcStreak = 0;
     }
     
-    if (calcStreak > currentStreak) {
-        currentStreak = calcStreak;
-        localStorage.setItem('6lets_streak', currentStreak);
+    // Auto-recover streak from recent games if it was incorrectly lost
+    const recentGamesStr = localStorage.getItem('6lets_recentGames');
+    if (recentGamesStr) {
+        const rGames = JSON.parse(recentGamesStr);
+        let calcStreak = autoRecoverStreak(rGames, 0);
+        if (calcStreak > currentStreak) {
+            currentStreak = calcStreak;
+            localStorage.setItem('6lets_streak', currentStreak);
+        }
     }
     
     const historyBtnText = document.getElementById('history-btn-text');
