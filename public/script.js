@@ -775,7 +775,7 @@ function showHistoryModal() {
     document.getElementById('hist-unfinished').textContent = `Unfinished games: ${unfinishedGames}`;
     
     const streak = parseInt(localStorage.getItem('6lets_streak')) || 0;
-    const puzzleStr = streak === 1 ? 'completed puzzle' : 'completed puzzles';
+    const puzzleStr = streak === 1 ? 'consecutive puzzle' : 'consecutive puzzles';
     document.getElementById('hist-streak').textContent = `Streak: ${streak} ${puzzleStr}`;
     
     // Recent games
