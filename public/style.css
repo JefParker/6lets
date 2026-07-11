@@ -231,6 +231,7 @@
     padding: 0;
     font-family: var(--font-family);
     user-select: none;
+    touch-action: manipulation;
 }
 
 body {
