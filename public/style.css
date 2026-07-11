@@ -797,12 +797,23 @@ header {
     cursor: not-allowed !important;
 }
 
-#close-history-btn, #close-help-btn {
+#close-history-btn {
     background: var(--key-bg);
     border: var(--key-border);
     padding: 10px 24px;
     border-radius: 2px;
     color: var(--key-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    margin-top: 15px;
+}
+
+#close-help-btn {
+    background-color: var(--key-eval-correct);
+    border: none;
+    padding: 10px 24px;
+    border-radius: 2px;
+    color: white;
     font-size: 1.2rem;
     cursor: pointer;
     margin-top: 15px;

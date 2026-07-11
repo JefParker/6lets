@@ -12,5 +12,8 @@
   "type": "commonjs",
   "devDependencies": {
     "wrangler": "^4.107.1"
+  },
+  "dependencies": {
+    "puppeteer": "^25.3.0"
   }
 }

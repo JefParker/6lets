@@ -1,6 +1,39 @@
-if (!localStorage.getItem('6lets_wiped_v1')) {
-    localStorage.clear();
-    localStorage.setItem('6lets_wiped_v1', 'true');
+// Safe storage wrapper to prevent Safari Private Mode from crashing
+const safeStorage = {
+    getItem(key) {
+        try {
+            return window.localStorage.getItem(key);
+        } catch (e) {
+            console.warn('localStorage is not available:', e);
+            return null;
+        }
+    },
+    setItem(key, value) {
+        try {
+            window.localStorage.setItem(key, value);
+        } catch (e) {
+            console.warn('localStorage is not available:', e);
+        }
+    },
+    removeItem(key) {
+        try {
+            window.localStorage.removeItem(key);
+        } catch (e) {
+            console.warn('localStorage is not available:', e);
+        }
+    },
+    clear() {
+        try {
+            window.localStorage.clear();
+        } catch (e) {
+            console.warn('localStorage is not available:', e);
+        }
+    }
+};
+
+if (!safeStorage.getItem('6lets_wiped_v1')) {
+    safeStorage.clear();
+    safeStorage.setItem('6lets_wiped_v1', 'true');
 }
 
 const WORD_LENGTH = 6;
@@ -15,7 +48,7 @@ let elapsedTimeMs = 0;
 let offlineWords = [];
 
 // Theme initialization
-const savedTheme = localStorage.getItem('6lets_theme') || 'original';
+const savedTheme = safeStorage.getItem('6lets_theme') || 'original';
 document.documentElement.setAttribute('data-theme', savedTheme);
 
 // Determine Game ID and Date (LA Time)
@@ -46,18 +79,18 @@ function generateUUID() {
 }
 
 function getUserUUID() {
-    let uuid = localStorage.getItem('6lets_uuid') || crypto.randomUUID();
-    localStorage.setItem('6lets_uuid', uuid);
+    let uuid = safeStorage.getItem('6lets_uuid') || crypto.randomUUID();
+    safeStorage.setItem('6lets_uuid', uuid);
     return uuid;
 }
 
 // Stats
-let completedGames = parseInt(localStorage.getItem('6lets_completed')) || 0;
-let unfinishedGames = parseInt(localStorage.getItem('6lets_unfinished')) || 0;
-let totalGuessesFinished = parseInt(localStorage.getItem('6lets_totalGuesses')) || 0;
-let guessDistribution = JSON.parse(localStorage.getItem('6lets_distribution')) || [0,0,0,0,0,0,0,0,0,0];
+let completedGames = parseInt(safeStorage.getItem('6lets_completed')) || 0;
+let unfinishedGames = parseInt(safeStorage.getItem('6lets_unfinished')) || 0;
+let totalGuessesFinished = parseInt(safeStorage.getItem('6lets_totalGuesses')) || 0;
+let guessDistribution = JSON.parse(safeStorage.getItem('6lets_distribution')) || [0,0,0,0,0,0,0,0,0,0];
 
-let rawGames = JSON.parse(localStorage.getItem('6lets_recentGames')) || [];
+let rawGames = JSON.parse(safeStorage.getItem('6lets_recentGames')) || [];
 let recentGames = [];
 let seenPuzzles = new Set();
 let needsResave = false;
@@ -89,11 +122,11 @@ rawGames.forEach(game => {
 });
 
 if (needsResave) {
-    localStorage.setItem('6lets_completed', completedGames);
-    localStorage.setItem('6lets_unfinished', unfinishedGames);
-    localStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
-    localStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
-    localStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+    safeStorage.setItem('6lets_completed', completedGames);
+    safeStorage.setItem('6lets_unfinished', unfinishedGames);
+    safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
+    safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
+    safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
 }
 
 // Initialize board
@@ -383,8 +416,8 @@ function checkWinCondition() {
         const winMessages = ['Genius!', 'Magnificent!', 'Impressive!', 'Splendid!', 'Great!', 'Phew!'];
         showToast(winMessages[guesses.length - 1] || 'Good job!');
         
-        let currentStreak = parseInt(localStorage.getItem('6lets_streak')) || 0;
-        let lastCompletedPuzzle = parseInt(localStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
+        let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+        let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
         
         if (puzzleNum === lastCompletedPuzzle + 1 || lastCompletedPuzzle === 0) {
             currentStreak++;
@@ -394,8 +427,8 @@ function checkWinCondition() {
         
         currentStreak = autoRecoverStreak(recentGames, currentStreak);
         
-        localStorage.setItem('6lets_streak', currentStreak);
-        localStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
+        safeStorage.setItem('6lets_streak', currentStreak);
+        safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = currentStreak;
 
@@ -421,8 +454,8 @@ function checkWinCondition() {
         if (recentGames.length > 10) recentGames.pop();
         unfinishedGames++;
         
-        localStorage.setItem('6lets_streak', 0);
-        localStorage.setItem('6lets_lastCompletedPuzzle', puzzleNum);
+        safeStorage.setItem('6lets_streak', 0);
+        safeStorage.setItem('6lets_lastCompletedPuzzle', puzzleNum);
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = '0';
         
@@ -451,9 +484,9 @@ function finishGame() {
     saveState();
     
     // Queue offline sync
-    let pending = JSON.parse(localStorage.getItem('pending_sync') || '[]');
+    let pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
     pending.push(result);
-    localStorage.setItem('pending_sync', JSON.stringify(pending));
+    safeStorage.setItem('pending_sync', JSON.stringify(pending));
     
     syncResults(); // Try to sync immediately
     
@@ -563,7 +596,7 @@ function showStatsModal() {
 
     // Check cache first
     const cacheKey = `6lets_globalStats_${gameId}`;
-    const cachedStats = localStorage.getItem(cacheKey);
+    const cachedStats = safeStorage.getItem(cacheKey);
     if (cachedStats) {
         try {
             renderChart(JSON.parse(cachedStats));
@@ -581,7 +614,7 @@ function showStatsModal() {
         .then(data => {
             if (data.distribution) {
                 renderChart(data.distribution);
-                localStorage.setItem(cacheKey, JSON.stringify(data.distribution));
+                safeStorage.setItem(cacheKey, JSON.stringify(data.distribution));
             }
         })
         .catch(() => {
@@ -774,7 +807,7 @@ function showHistoryModal() {
     document.getElementById('hist-completed').textContent = `Completed games: ${completedGames}`;
     document.getElementById('hist-unfinished').textContent = `Unfinished games: ${unfinishedGames}`;
     
-    const streak = parseInt(localStorage.getItem('6lets_streak')) || 0;
+    const streak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
     const puzzleStr = streak === 1 ? 'consecutive puzzle' : 'consecutive puzzles';
     document.getElementById('hist-streak').textContent = `Streak: ${streak} ${puzzleStr}`;
     
@@ -846,33 +879,33 @@ function saveState() {
         startTime,
         lastSaved: Date.now()
     };
-    localStorage.setItem(`gameState_${gameId}`, JSON.stringify(state));
-    localStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
-    localStorage.setItem('6lets_completed', completedGames);
-    localStorage.setItem('6lets_unfinished', unfinishedGames);
-    localStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
-    localStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+    safeStorage.setItem(`gameState_${gameId}`, JSON.stringify(state));
+    safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
+    safeStorage.setItem('6lets_completed', completedGames);
+    safeStorage.setItem('6lets_unfinished', unfinishedGames);
+    safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
+    safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
 }
 
 function loadState() {
     gameId = getGameId();
     
-    const lastGameId = localStorage.getItem('6lets_lastGameId');
+    const lastGameId = safeStorage.getItem('6lets_lastGameId');
     if (lastGameId && lastGameId !== gameId) {
-        const lastStateStr = localStorage.getItem(`gameState_${lastGameId}`);
+        const lastStateStr = safeStorage.getItem(`gameState_${lastGameId}`);
         if (lastStateStr) {
             const lastState = JSON.parse(lastStateStr);
             if (lastState.gameState === 'playing' && lastState.guesses && lastState.guesses.length > 0) {
                 unfinishedGames++;
-                localStorage.setItem('6lets_unfinished', unfinishedGames);
+                safeStorage.setItem('6lets_unfinished', unfinishedGames);
                 lastState.gameState = 'lost';
-                localStorage.setItem(`gameState_${lastGameId}`, JSON.stringify(lastState));
+                safeStorage.setItem(`gameState_${lastGameId}`, JSON.stringify(lastState));
             }
         }
     }
-    localStorage.setItem('6lets_lastGameId', gameId);
+    safeStorage.setItem('6lets_lastGameId', gameId);
 
-    const savedStateStr = localStorage.getItem(`gameState_${gameId}`);
+    const savedStateStr = safeStorage.getItem(`gameState_${gameId}`);
     if (savedStateStr) {
         const savedState = JSON.parse(savedStateStr);
         guesses = savedState.guesses || [];
@@ -883,23 +916,23 @@ function loadState() {
     }
     
     // Check if missed a puzzle to break streak
-    let currentStreak = parseInt(localStorage.getItem('6lets_streak')) || 0;
-    let lastCompletedPuzzle = parseInt(localStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
+    let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+    let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
     const currentPuzzle = getPuzzleNumber(gameId);
     
     if (gameState === 'playing' && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
-        localStorage.setItem('6lets_streak', 0);
+        safeStorage.setItem('6lets_streak', 0);
         currentStreak = 0;
     }
     
     // Auto-recover streak from recent games if it was incorrectly lost
-    const recentGamesStr = localStorage.getItem('6lets_recentGames');
+    const recentGamesStr = safeStorage.getItem('6lets_recentGames');
     if (recentGamesStr) {
         const rGames = JSON.parse(recentGamesStr);
         let calcStreak = autoRecoverStreak(rGames, 0);
         if (calcStreak > currentStreak) {
             currentStreak = calcStreak;
-            localStorage.setItem('6lets_streak', currentStreak);
+            safeStorage.setItem('6lets_streak', currentStreak);
         }
     }
     
@@ -943,7 +976,7 @@ document.addEventListener('keydown', (e) => {
 async function syncResults() {
     if (!navigator.onLine) return;
     
-    const pending = JSON.parse(localStorage.getItem('pending_sync') || '[]');
+    const pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
     if (pending.length === 0) return;
     
     try {
@@ -961,7 +994,7 @@ async function syncResults() {
         });
         
         if (response.ok) {
-            localStorage.setItem('pending_sync', '[]');
+            safeStorage.setItem('pending_sync', '[]');
         }
     } catch (e) {
         console.error('Failed to sync', e);
@@ -973,7 +1006,7 @@ async function fetchOfflineWords() {
         const response = await fetch('/api/words');
         if (response.ok) {
             const data = await response.json(); // Array of { id, word: base64 }
-            localStorage.setItem('offline_words', JSON.stringify(data));
+            safeStorage.setItem('offline_words', JSON.stringify(data));
         }
     } catch (e) {
         console.error('Failed to fetch offline words', e);
@@ -981,7 +1014,7 @@ async function fetchOfflineWords() {
 }
 
 function determineTargetWord() {
-    const offline = JSON.parse(localStorage.getItem('offline_words') || '[]');
+    const offline = JSON.parse(safeStorage.getItem('offline_words') || '[]');
     const match = offline.find(w => w.id === gameId);
     if (match) {
         targetWord = atob(match.word).toUpperCase();
@@ -1004,14 +1037,14 @@ async function syncDown(force = false) {
             totalGuessesFinished = stats['6lets_totalGuesses'] || 0;
             recentGames = JSON.parse(stats['6lets_recentGames'] || '[]');
             
-            localStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
-            localStorage.setItem('6lets_completed', completedGames);
-            localStorage.setItem('6lets_unfinished', unfinishedGames);
-            localStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
-            localStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+            safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
+            safeStorage.setItem('6lets_completed', completedGames);
+            safeStorage.setItem('6lets_unfinished', unfinishedGames);
+            safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
+            safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
 
             if (stats.display_name !== undefined) {
-                localStorage.setItem('6lets_display_name', stats.display_name);
+                safeStorage.setItem('6lets_display_name', stats.display_name);
             }
 
             // Sync current game board state if completed in cloud
@@ -1037,7 +1070,7 @@ if (titleEl) {
     titleEl.addEventListener('click', () => {
         titleClickCount++;
         if (titleClickCount === 10) {
-            localStorage.setItem('isAdmin', 'true');
+            safeStorage.setItem('isAdmin', 'true');
             const adminBtn = document.getElementById('admin-btn-header');
             if (adminBtn) adminBtn.style.display = 'flex';
 
@@ -1045,7 +1078,7 @@ if (titleEl) {
     });
 }
 
-if (localStorage.getItem('isAdmin') === 'true') {
+if (safeStorage.getItem('isAdmin') === 'true') {
     const adminBtn = document.getElementById('admin-btn-header');
     if (adminBtn) adminBtn.style.display = 'flex';
 }
@@ -1053,7 +1086,7 @@ if (localStorage.getItem('isAdmin') === 'true') {
 const adminBtn = document.getElementById('admin-btn-header');
 if (adminBtn) {
     adminBtn.addEventListener('click', () => {
-        if (localStorage.getItem('hasAdminSession') === 'true') {
+        if (safeStorage.getItem('hasAdminSession') === 'true') {
             document.getElementById('admin-dashboard-modal').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
             animateBouncyWord('dashboard-word-container', 'DASHBOARD');
@@ -1080,7 +1113,7 @@ document.getElementById('settings-btn-header').addEventListener('click', () => {
     
     animateBouncyWord('settings-word-container', 'SETTINGS');
 
-    const currentDisplayName = localStorage.getItem('6lets_display_name') || '';
+    const currentDisplayName = safeStorage.getItem('6lets_display_name') || '';
     const dnInput = document.getElementById('display-name-input');
     const updateDnBtn = document.getElementById('update-display-name-btn');
     
@@ -1092,12 +1125,12 @@ document.getElementById('settings-btn-header').addEventListener('click', () => {
     document.getElementById('update-uuid-btn').style.display = 'none';
 
     const themeSelector = document.getElementById('theme-selector');
-    themeSelector.value = localStorage.getItem('6lets_theme') || 'original';
+    themeSelector.value = safeStorage.getItem('6lets_theme') || 'original';
 });
 
 document.getElementById('display-name-input').addEventListener('input', (e) => {
     const val = e.target.value.trim();
-    const currentDisplayName = localStorage.getItem('6lets_display_name') || '';
+    const currentDisplayName = safeStorage.getItem('6lets_display_name') || '';
     const updateDnBtn = document.getElementById('update-display-name-btn');
     if (val === '' || val === currentDisplayName) {
         updateDnBtn.style.display = 'none';
@@ -1108,7 +1141,7 @@ document.getElementById('display-name-input').addEventListener('input', (e) => {
 
 document.getElementById('theme-selector').addEventListener('change', (e) => {
     const theme = e.target.value;
-    localStorage.setItem('6lets_theme', theme);
+    safeStorage.setItem('6lets_theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
 });
 
@@ -1133,7 +1166,7 @@ document.getElementById('update-display-name-btn').addEventListener('click', asy
         });
         
         if (res.ok) {
-            localStorage.setItem('6lets_display_name', val);
+            safeStorage.setItem('6lets_display_name', val);
             updateDnBtn.textContent = 'Update';
             updateDnBtn.disabled = false;
             updateDnBtn.style.display = 'none';
@@ -1234,12 +1267,12 @@ document.getElementById('update-uuid-btn').addEventListener('click', async () =>
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     
     if (uuidRegex.test(newValue)) {
-        localStorage.setItem('6lets_uuid', newValue);
+        safeStorage.setItem('6lets_uuid', newValue);
         
         // Wipe local game state to ensure we cleanly load the new UUID's state
-        localStorage.removeItem('6lets_gameState');
-        localStorage.removeItem('6lets_guesses');
-        localStorage.removeItem('6lets_elapsedTimeMs');
+        safeStorage.removeItem('6lets_gameState');
+        safeStorage.removeItem('6lets_guesses');
+        safeStorage.removeItem('6lets_elapsedTimeMs');
         gameState = 'playing';
         guesses = [];
         
@@ -1303,7 +1336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Retroactive sync: if they finished a game before the guesses feature was added, push it once.
             if (gameState !== 'playing' && guesses.length > 0) {
                 const retroKey = `6lets_retro_sync_${gameId}`;
-                if (!localStorage.getItem(retroKey)) {
+                if (!safeStorage.getItem(retroKey)) {
                     const result = {
                         user_uuid: getUserUUID(),
                         game_id: gameId,
@@ -1312,14 +1345,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         solved_successfully: gameState === 'won',
                         guesses: JSON.stringify(guesses)
                     };
-                    let pending = JSON.parse(localStorage.getItem('pending_sync') || '[]');
+                    let pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
                     pending.push(result);
-                    localStorage.setItem('pending_sync', JSON.stringify(pending));
-                    localStorage.setItem(retroKey, 'true');
+                    safeStorage.setItem('pending_sync', JSON.stringify(pending));
+                    safeStorage.setItem(retroKey, 'true');
                 }
             }
             
-            syncResults().then(() => syncDown());
+            syncResults().then(() => syncDown()).catch(e => console.warn('Background sync failed:', e));
         }
 
         if (gameState !== 'playing') {
@@ -1332,7 +1365,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 animateBouncyWord('help-word-container');
             }, 100);
         }
-    });
+    }).catch(e => console.warn('Initialization error:', e));
 });
 
 // === ADMIN DASHBOARD LOGIC ===
@@ -1354,7 +1387,7 @@ async function attemptAdminLogin(user, pass) {
         });
         
         if (res.ok) {
-            localStorage.setItem('hasAdminSession', 'true');
+            safeStorage.setItem('hasAdminSession', 'true');
             document.getElementById('admin-login-modal').classList.add('hidden');
             document.getElementById('admin-dashboard-modal').classList.remove('hidden');
             animateBouncyWord('dashboard-word-container', 'DASHBOARD');
@@ -1375,8 +1408,8 @@ document.getElementById('admin-login-submit-btn').addEventListener('click', () =
 });
 
 document.getElementById('admin-logout-btn').addEventListener('click', () => {
-    localStorage.removeItem('hasAdminSession');
-    localStorage.removeItem('isAdmin');
+    safeStorage.removeItem('hasAdminSession');
+    safeStorage.removeItem('isAdmin');
     document.getElementById('admin-username-input').value = '';
     document.getElementById('admin-password-input').value = '';
     document.getElementById('admin-dashboard-modal').classList.add('hidden');
@@ -1740,7 +1773,7 @@ async function loadAdminLeaderboard(type) {
 }
 
 function handlePostGame() {
-    const currentDisplayName = localStorage.getItem('6lets_display_name') || '';
+    const currentDisplayName = safeStorage.getItem('6lets_display_name') || '';
     if (currentDisplayName === '') {
         document.getElementById('name-prompt-modal').classList.remove('hidden');
         document.getElementById('modal-overlay').classList.remove('hidden');
@@ -1781,7 +1814,7 @@ document.getElementById('prompt-save-name-btn').addEventListener('click', async 
         });
         
         if (res.ok) {
-            localStorage.setItem('6lets_display_name', val);
+            safeStorage.setItem('6lets_display_name', val);
             const dnInput = document.getElementById('display-name-input');
             if (dnInput) dnInput.value = val;
             const updateDnBtn = document.getElementById('update-display-name-btn');
