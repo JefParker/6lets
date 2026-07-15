@@ -21,7 +21,7 @@ export async function onRequestPost(context) {
              VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(user_uuid, game_id) DO UPDATE SET
                 guesses_taken = excluded.guesses_taken,
-                time_taken_ms = excluded.time_taken_ms,
+                time_taken_ms = CASE WHEN excluded.time_taken_ms > 0 THEN excluded.time_taken_ms ELSE time_taken_ms END,
                 solved_successfully = excluded.solved_successfully,
                 guesses = excluded.guesses,
                 played_at = CURRENT_TIMESTAMP`

@@ -1064,6 +1064,9 @@ async function syncDown(force = false) {
                 if (stats.cloud_guesses) {
                     guesses = JSON.parse(stats.cloud_guesses);
                 }
+                if (stats.cloud_timeTakenMs) {
+                    elapsedTimeMs = stats.cloud_timeTakenMs;
+                }
                 saveState();
                 renderBoard();
                 setTimeout(handlePostGame, 1500);
@@ -1344,24 +1347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Sync results and then pull down state (now that gameId is known)
         if (navigator.onLine) {
-            // Retroactive sync: if they finished a game before the guesses feature was added, push it once.
-            if (gameState !== 'playing' && guesses.length > 0) {
-                const retroKey = `6lets_retro_sync_${gameId}`;
-                if (!safeStorage.getItem(retroKey)) {
-                    const result = {
-                        user_uuid: getUserUUID(),
-                        game_id: gameId,
-                        guesses_taken: guesses.length,
-                        time_taken_ms: elapsedTimeMs,
-                        solved_successfully: gameState === 'won',
-                        guesses: JSON.stringify(guesses)
-                    };
-                    let pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
-                    pending.push(result);
-                    safeStorage.setItem('pending_sync', JSON.stringify(pending));
-                    safeStorage.setItem(retroKey, 'true');
-                }
-            }
+
             
             syncResults().then(() => syncDown()).catch(e => console.warn('Background sync failed:', e));
         }

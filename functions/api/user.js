@@ -23,7 +23,7 @@ export async function onRequestGet(context) {
 
     try {
         const { results } = await env.DB.prepare(`
-            SELECT r.game_id, r.guesses_taken, r.solved_successfully, r.guesses, d.word
+            SELECT r.game_id, r.guesses_taken, r.solved_successfully, r.guesses, r.time_taken_ms, d.word
             FROM Results r
             JOIN DailyWords d ON r.game_id = d.id
             WHERE r.user_uuid = ?
@@ -37,6 +37,7 @@ export async function onRequestGet(context) {
         let recentGames = [];
         let cloudGuesses = null;
         let cloudGameState = null;
+        let cloudTimeTakenMs = null;
         let seenGameIds = new Set();
 
         for (const row of results) {
@@ -48,6 +49,7 @@ export async function onRequestGet(context) {
             if (game_id && row.game_id === game_id) {
                 if (row.guesses) cloudGuesses = row.guesses;
                 cloudGameState = row.solved_successfully === 1 ? 'won' : 'lost';
+                if (row.time_taken_ms) cloudTimeTakenMs = row.time_taken_ms;
             }
 
             if (row.solved_successfully === 1) {
@@ -82,6 +84,7 @@ export async function onRequestGet(context) {
         if (cloudGameState) {
             stats.cloud_gameState = cloudGameState;
             stats.cloud_guesses = cloudGuesses;
+            if (cloudTimeTakenMs) stats.cloud_timeTakenMs = cloudTimeTakenMs;
         }
 
         return new Response(JSON.stringify(stats), {
