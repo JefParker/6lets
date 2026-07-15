@@ -396,6 +396,13 @@ function autoRecoverStreak(rGames, currentStreak) {
         }
     }
     
+    // Fix for legacy capped recentGames: if the entire recorded history is consecutive, 
+    // it got capped at 10 (the old limit), and no games were failed, 
+    // their true streak may equal completedGames.
+    if (calcStreak === completedPuzzles.length && calcStreak >= 10 && unfinishedGames === 0 && completedGames > calcStreak) {
+        calcStreak = completedGames;
+    }
+    
     return Math.max(currentStreak, calcStreak);
 }
 
@@ -408,7 +415,6 @@ function checkWinCondition() {
         const resultText = `${guesses.length} guesses`;
         recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
         recentGames.unshift(`${gameIdText} ${targetWord} - ${resultText}`);
-        if (recentGames.length > 10) recentGames.pop();
         completedGames++;
         totalGuessesFinished += guesses.length;
         guessDistribution[guesses.length - 1]++;
@@ -451,7 +457,7 @@ function checkWinCondition() {
         const gameIdText = `#${puzzleNum}`;
         recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
         recentGames.unshift(`${gameIdText} ${targetWord} - X guesses`);
-        if (recentGames.length > 10) recentGames.pop();
+        if (recentGames.length > 10) recentGames.length = 10;
         unfinishedGames++;
         
         safeStorage.setItem('6lets_streak', 0);
@@ -923,6 +929,11 @@ function loadState() {
     if (gameState === 'playing' && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
         safeStorage.setItem('6lets_streak', 0);
         currentStreak = 0;
+        
+        if (recentGames.length > 10) {
+            recentGames.length = 10;
+            safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+        }
     }
     
     // Auto-recover streak from recent games if it was incorrectly lost
