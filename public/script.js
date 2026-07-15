@@ -1877,3 +1877,29 @@ document.getElementById('close-new-game-btn').addEventListener('click', () => {
 document.getElementById('play-new-game-btn').addEventListener('click', () => {
     window.location.reload();
 });
+
+// Screen Wake Lock API
+let wakeLock = null;
+
+const requestWakeLock = async () => {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                console.log('Screen Wake Lock released:', wakeLock.released);
+            });
+            console.log('Screen Wake Lock acquired:', !wakeLock.released);
+        }
+    } catch (err) {
+        console.error(`Wake Lock error: ${err.name}, ${err.message}`);
+    }
+};
+
+document.addEventListener('visibilitychange', async () => {
+    if (wakeLock !== null && document.visibilityState === 'visible') {
+        await requestWakeLock();
+    }
+});
+
+// Request initial wake lock
+requestWakeLock();
