@@ -431,13 +431,21 @@ function checkWinCondition() {
             currentStreak = 1;
         }
         
+        recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
+        recentGames.unshift(`${gameIdText} ${targetWord} - ${resultText}`);
+        completedGames++;
+        totalGuessesFinished += guesses.length;
+        guessDistribution[guesses.length - 1]++;
+
         currentStreak = autoRecoverStreak(recentGames, currentStreak);
         
         safeStorage.setItem('6lets_streak', currentStreak);
         safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = currentStreak;
-
+        
+        safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+        safeStorage.setItem('6lets_completed', completedGames);
         const density = Math.max(10, 200 - (guesses.length * 15));
         if (typeof window.confetti === 'function') {
             window.confetti({ 
