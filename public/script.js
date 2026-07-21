@@ -129,6 +129,11 @@ if (needsResave) {
     safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
 }
 
+let initialStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+if (initialStreak > completedGames) {
+    safeStorage.setItem('6lets_streak', completedGames);
+}
+
 // Initialize board
 function renderBoard() {
     const board = document.getElementById('board');
@@ -431,13 +436,11 @@ function checkWinCondition() {
             currentStreak = 1;
         }
         
-        recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
-        recentGames.unshift(`${gameIdText} ${targetWord} - ${resultText}`);
-        completedGames++;
-        totalGuessesFinished += guesses.length;
-        guessDistribution[guesses.length - 1]++;
-
         currentStreak = autoRecoverStreak(recentGames, currentStreak);
+        
+        if (currentStreak > completedGames) {
+            currentStreak = completedGames;
+        }
         
         safeStorage.setItem('6lets_streak', currentStreak);
         safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
@@ -1061,6 +1064,14 @@ async function syncDown(force = false) {
             safeStorage.setItem('6lets_unfinished', unfinishedGames);
             safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
             safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+
+            let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+            if (currentStreak > completedGames) {
+                currentStreak = completedGames;
+                safeStorage.setItem('6lets_streak', currentStreak);
+                const historyBtnText = document.getElementById('history-btn-text');
+                if (historyBtnText) historyBtnText.textContent = currentStreak;
+            }
 
             if (stats.display_name !== undefined) {
                 safeStorage.setItem('6lets_display_name', stats.display_name);
