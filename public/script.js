@@ -696,7 +696,7 @@ document.querySelector('.close-btn').addEventListener('click', () => {
     document.getElementById('modal-overlay').classList.add('hidden');
 });
 
-document.getElementById('share-btn').addEventListener('click', () => {
+const getShareText = () => {
     const options = { month: 'short', day: '2-digit', year: 'numeric' };
     const dateString = new Date().toLocaleDateString('en-US', options);
     
@@ -741,8 +741,10 @@ document.getElementById('share-btn').addEventListener('click', () => {
     };
 
     const puzzleNum = getPuzzleNumber(gameId);
-    const textToShare = `Six Letters\n${dateString} (#${puzzleNum})\n${emojiGrid}https://6lets.com/`;
-    
+    return `Six Letters\n${dateString} (#${puzzleNum})\n${emojiGrid}https://6lets.com/`;
+};
+
+const copyToClipboard = (textToShare) => {
     const fallbackCopy = () => {
         const textarea = document.createElement('textarea');
         textarea.value = textToShare;
@@ -766,7 +768,34 @@ document.getElementById('share-btn').addEventListener('click', () => {
     } else {
         fallbackCopy();
     }
-});
+};
+
+const copyBtn = document.getElementById('copy-btn');
+if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+        const textToShare = getShareText();
+        copyToClipboard(textToShare);
+    });
+}
+
+const shareBtn = document.getElementById('share-btn');
+if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+        const textToShare = getShareText();
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: 'Six Letters',
+                    text: textToShare
+                });
+            } catch (e) {
+                // Ignore abort errors when user closes share sheet
+            }
+        } else {
+            copyToClipboard(textToShare);
+        }
+    });
+}
 
 
 document.getElementById('close-history-x-btn').addEventListener('click', () => {
