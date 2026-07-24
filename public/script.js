@@ -70,16 +70,18 @@ function getGameId() {
     return `${year}-${month}-${day}-${ampm}`;
 }
 
-// UUID generator
-function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
 function getUserUUID() {
-    let uuid = safeStorage.getItem('6lets_uuid') || crypto.randomUUID();
+    let uuid = safeStorage.getItem('6lets_uuid');
+    if (!uuid) {
+        // Prefer crypto.randomUUID (secure contexts); fall back to a manual v4
+        // generator so first-run still works if it's unavailable.
+        uuid = (crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+    }
     safeStorage.setItem('6lets_uuid', uuid);
     return uuid;
 }
@@ -231,10 +233,10 @@ function updateKeyboardColors() {
     const letterStates = {};
     
     guesses.forEach(guess => {
-        const eval = evaluateGuess(guess, targetWord);
+        const evaluation = evaluateGuess(guess, targetWord);
         for (let i = 0; i < WORD_LENGTH; i++) {
             const char = guess[i];
-            const state = eval[i];
+            const state = evaluation[i];
             
             if (state === 'correct') {
                 letterStates[char] = 'correct';
@@ -255,31 +257,31 @@ function updateKeyboardColors() {
 }
 
 function evaluateGuess(guess, target) {
-    const eval = Array(WORD_LENGTH).fill('absent');
+    const evaluation = Array(WORD_LENGTH).fill('absent');
     const targetChars = target.split('');
     const guessChars = guess.split('');
-    
+
     // First pass: correct
     for (let i = 0; i < WORD_LENGTH; i++) {
         if (guessChars[i] === targetChars[i]) {
-            eval[i] = 'correct';
+            evaluation[i] = 'correct';
             targetChars[i] = null;
             guessChars[i] = null;
         }
     }
-    
+
     // Second pass: present
     for (let i = 0; i < WORD_LENGTH; i++) {
         if (guessChars[i] !== null) {
             const index = targetChars.indexOf(guessChars[i]);
             if (index !== -1) {
-                eval[i] = 'present';
+                evaluation[i] = 'present';
                 targetChars[index] = null;
             }
         }
     }
-    
-    return eval;
+
+    return evaluation;
 }
 
 function showToast(message) {
@@ -347,8 +349,8 @@ function submitGuess() {
             tile.classList.add('flip');
             // Change color halfway through flip
             setTimeout(() => {
-                const eval = evaluateGuess(guessSubmitted, targetWord);
-                tile.dataset.state = eval[i];
+                const evaluation = evaluateGuess(guessSubmitted, targetWord);
+                tile.dataset.state = evaluation[i];
                 if (i === WORD_LENGTH - 1) {
                     checkWinCondition();
                     if (gameState === 'playing') {
@@ -362,7 +364,7 @@ function submitGuess() {
 }
 
 function getPuzzleNumber(gameIdStr) {
-    if (!gameIdStr) return 3299;
+    if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
     const [year, month, day, ampm] = gameIdStr.split('-');
     const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     const epochDate = new Date(2026, 6, 8); // July 8, 2026
@@ -430,12 +432,17 @@ function checkWinCondition() {
         let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
         let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
         
-        if (puzzleNum === lastCompletedPuzzle + 1 || lastCompletedPuzzle === 0) {
+        if (lastCompletedPuzzle === 0 || puzzleNum === lastCompletedPuzzle + 1) {
+            // First ever solve, or the immediate next puzzle: extend the streak.
             currentStreak++;
         } else if (puzzleNum > lastCompletedPuzzle + 1) {
+            // Skipped one or more puzzles: streak restarts at this solve.
             currentStreak = 1;
+        } else {
+            // puzzleNum <= lastCompletedPuzzle: replaying/back-filling an older
+            // puzzle. Don't touch the streak (and never double-count).
         }
-        
+
         currentStreak = autoRecoverStreak(recentGames, currentStreak);
         
         if (currentStreak > completedGames) {
@@ -531,7 +538,10 @@ function buildGraph(distributionData, container, textElement, highlightGameStatu
     }
 
     const updateText = (index, showTotal = false) => {
-        const total = chartData.reduce((a, b) => a + b, 0);
+        // Use the real distribution (not the highlight-inflated chartData) for
+        // counts and percentages, so the player total isn't off by one when the
+        // current player's own result isn't yet reflected in global stats.
+        const total = distributionData.reduce((a, b) => a + b, 0);
         const prefix = wordLabel ? `${wordLabel} - ` : '';
         if (total === 0) {
             textElement.textContent = `${prefix}0 Players`;
@@ -541,7 +551,7 @@ function buildGraph(distributionData, container, textElement, highlightGameStatu
             textElement.textContent = `${prefix}${total} Player${total !== 1 ? 's' : ''}`;
             return;
         }
-        const pct = Math.round((chartData[index] / total) * 100);
+        const pct = Math.round((distributionData[index] / total) * 100);
         if (index === 10) {
             textElement.textContent = `${pct}% of players failed to solve this word`;
         } else {
@@ -698,8 +708,15 @@ document.querySelector('.close-btn').addEventListener('click', () => {
 
 const getShareText = () => {
     const options = { month: 'short', day: '2-digit', year: 'numeric' };
-    const dateString = new Date().toLocaleDateString('en-US', options);
-    
+    // Derive the date from the puzzle's game id (LA date) rather than the
+    // device's local clock, so the shared date always matches the puzzle number.
+    const gameIdParts = (gameId || '').split('-');
+    let shareDate = new Date();
+    if (gameIdParts.length === 4) {
+        shareDate = new Date(parseInt(gameIdParts[0]), parseInt(gameIdParts[1]) - 1, parseInt(gameIdParts[2]));
+    }
+    const dateString = shareDate.toLocaleDateString('en-US', options);
+
     let emojiGrid = '';
     guesses.forEach(guess => {
         let row = '';
@@ -728,9 +745,9 @@ const getShareText = () => {
     });
     
     const getPuzzleNumber = (gameIdStr) => {
-        if (!gameIdStr) return 3299;
+        if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
         const parts = gameIdStr.split('-');
-        if (parts.length !== 4) return 3299;
+        if (parts.length !== 4) return 3298; // fallback matches the epoch base (July 8 2026 AM)
         const [year, month, day, ampm] = parts;
         const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
         const epochDate = new Date(2026, 6, 8); // July 8, 2026
@@ -1024,32 +1041,32 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Sync logic
+// Returns true when the local queue is known to be flushed to the server
+// (either it was empty, or the POST succeeded), false otherwise.
 async function syncResults() {
-    if (!navigator.onLine) return;
-    
+    if (!navigator.onLine) return false;
+
     const pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
-    if (pending.length === 0) return;
-    
+    if (pending.length === 0) return true;
+
     try {
+        // The server only reads `pending`; aggregate stats are recomputed
+        // server-side from the Results table, so we don't send them.
         const response = await fetch('/api/results', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                pending,
-                '6lets_distribution': JSON.stringify(guessDistribution),
-                '6lets_completed': completedGames,
-                '6lets_unfinished': unfinishedGames,
-                '6lets_totalGuesses': totalGuessesFinished,
-                '6lets_recentGames': JSON.stringify(recentGames)
-            })
+            body: JSON.stringify({ pending })
         });
-        
+
         if (response.ok) {
             safeStorage.setItem('pending_sync', '[]');
+            return true;
         }
+        return false;
     } catch (e) {
         console.error('Failed to sync', e);
     }
+    return false;
 }
 
 async function fetchOfflineWords() {
@@ -1081,18 +1098,32 @@ async function syncDown(force = false) {
         const response = await fetch(`/api/user?uuid=${uuid}&game_id=${gameId}`);
         if (response.ok) {
             const stats = await response.json();
-            
-            guessDistribution = JSON.parse(stats['6lets_distribution'] || '[0,0,0,0,0,0,0,0,0,0]');
-            completedGames = stats['6lets_completed'] || 0;
-            unfinishedGames = stats['6lets_unfinished'] || 0;
-            totalGuessesFinished = stats['6lets_totalGuesses'] || 0;
-            recentGames = JSON.parse(stats['6lets_recentGames'] || '[]');
-            
-            safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
-            safeStorage.setItem('6lets_completed', completedGames);
-            safeStorage.setItem('6lets_unfinished', unfinishedGames);
-            safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
-            safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+
+            const serverDist = JSON.parse(stats['6lets_distribution'] || '[0,0,0,0,0,0,0,0,0,0]');
+            const serverCompleted = stats['6lets_completed'] || 0;
+            const serverUnfinished = stats['6lets_unfinished'] || 0;
+            const serverTotalGuesses = stats['6lets_totalGuesses'] || 0;
+            const serverRecent = JSON.parse(stats['6lets_recentGames'] || '[]');
+
+            // Guard against clobbering newer local (offline) progress with an
+            // older server snapshot — e.g. if the preceding upload silently
+            // failed. On an explicit account switch (force) we always adopt the
+            // server state for the new account.
+            const localPlayed = completedGames + unfinishedGames;
+            const serverPlayed = serverCompleted + serverUnfinished;
+            if (force || serverPlayed >= localPlayed) {
+                guessDistribution = serverDist;
+                completedGames = serverCompleted;
+                unfinishedGames = serverUnfinished;
+                totalGuessesFinished = serverTotalGuesses;
+                recentGames = serverRecent;
+
+                safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
+                safeStorage.setItem('6lets_completed', completedGames);
+                safeStorage.setItem('6lets_unfinished', unfinishedGames);
+                safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
+                safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+            }
 
             let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
             if (currentStreak > completedGames) {

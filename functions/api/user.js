@@ -1,7 +1,7 @@
 function getPuzzleNumber(gameIdStr) {
-    if (!gameIdStr) return 3299;
+    if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
     const parts = gameIdStr.split('-');
-    if (parts.length !== 4) return 3299;
+    if (parts.length !== 4) return 3298;
     const [year, month, day, ampm] = parts;
     const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     const epochDate = new Date(2026, 6, 8); // July 8, 2026

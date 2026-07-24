@@ -15,10 +15,13 @@ export async function onRequestGet(context) {
     const ampm = hour < 12 ? 'AM' : 'PM';
     const currentGameId = `${year}-${month}-${day}-${ampm}`;
 
-    // Get the next 120 words (60 days * 2)
+    // Only return a small look-ahead window (current game + next few half-days).
+    // Enough to keep offline play working across a game rollover, without
+    // exposing weeks of upcoming answers. NOTE: base64 below is obfuscation
+    // only, NOT security — anyone can decode it, so the window must stay small.
     try {
         const { results } = await env.DB.prepare(
-            "SELECT id, word FROM DailyWords WHERE id >= ? ORDER BY id ASC LIMIT 120"
+            "SELECT id, word FROM DailyWords WHERE id >= ? ORDER BY id ASC LIMIT 4"
         ).bind(currentGameId).all();
 
         // Encode words in base64 to obfuscate them

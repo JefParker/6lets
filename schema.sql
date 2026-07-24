@@ -28,11 +28,6 @@ CREATE TABLE Results (
     UNIQUE(user_uuid, game_id)
 );
 
-DROP TABLE IF EXISTS UserState;
-CREATE TABLE UserState (
-    user_uuid TEXT PRIMARY KEY,
-    stats TEXT,
-    history TEXT,
-    total_games INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY (user_uuid) REFERENCES Users(uuid)
-);
+-- NOTE: The former UserState table has been removed. Aggregate per-user stats
+-- are derived on demand from the Results table (see functions/api/user.js),
+-- so a separate stats/history store is no longer needed.

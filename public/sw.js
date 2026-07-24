@@ -1,4 +1,4 @@
-const CACHE_NAME = '6lets-cache-v37';
+const CACHE_NAME = '6lets-cache-v38';
 const ASSETS = [
     '/',
     '/index.html',
@@ -41,12 +41,19 @@ self.addEventListener('fetch', event => {
     if (event.request.url.includes('/api/')) return;
 
     event.respondWith(
-        caches.match(event.request).then(cachedResponse => {
+        // ignoreSearch so versioned URLs (e.g. script.js?v=40) still match the
+        // precached /script.js entry — otherwise the app fails to boot offline.
+        caches.match(event.request, { ignoreSearch: true }).then(cachedResponse => {
             if (cachedResponse) {
                 return cachedResponse;
             }
             return fetch(event.request).then(response => {
-                // Optionally cache new assets here
+                // Runtime-cache successful same-origin responses so navigations
+                // and lazily-loaded assets are available offline next time.
+                if (response && response.ok && response.type === 'basic') {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                }
                 return response;
             }).catch(error => {
                 console.warn('Fetch failed for', event.request.url, error);

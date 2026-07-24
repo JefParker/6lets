@@ -33,23 +33,44 @@ export async function onRequestPost(context) {
         );
 
         const batch = [];
+        let skipped = 0;
         for (const res of resultsArray) {
+            // Validate/coerce each record. NOT NULL columns must never receive
+            // undefined, and one malformed record must not fail the whole batch
+            // (D1 batch is atomic) — skip bad records instead.
+            if (!res || typeof res.user_uuid !== 'string' || !res.user_uuid ||
+                typeof res.game_id !== 'string' || !res.game_id) {
+                skipped++;
+                continue;
+            }
+
+            const guessesTaken = Number(res.guesses_taken);
+            if (!Number.isFinite(guessesTaken)) {
+                skipped++;
+                continue;
+            }
+
+            const timeTakenMs = Number.isFinite(Number(res.time_taken_ms)) ? Number(res.time_taken_ms) : 0;
+            const solved = res.solved_successfully ? 1 : 0;
+
             batch.push(userStmt.bind(res.user_uuid)); // Ensure user exists
             batch.push(stmt.bind(
                 crypto.randomUUID(), // Generate new UUID for the result record
                 res.user_uuid,
                 res.game_id,
-                res.guesses_taken,
-                res.time_taken_ms,
-                res.solved_successfully ? 1 : 0,
+                guessesTaken,
+                timeTakenMs,
+                solved,
                 res.guesses || null
             ));
         }
 
         // Execute batch operations
-        await env.DB.batch(batch);
+        if (batch.length > 0) {
+            await env.DB.batch(batch);
+        }
 
-        return new Response(JSON.stringify({ success: true }), {
+        return new Response(JSON.stringify({ success: true, skipped }), {
             headers: { 'Content-Type': 'application/json' }
         });
     } catch (e) {
