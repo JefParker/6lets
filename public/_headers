@@ -4,4 +4,22 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com https://cdn.jsdelivr.net; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
+
+# Allowances above, and why each is needed:
+#
+#   script-src  cdn.jsdelivr.net            canvas-confetti (index.html)
+#               static.cloudflareinsights.com  Web Analytics beacon, which
+#                                              Cloudflare Pages injects into
+#                                              every response automatically
+#
+#   style-src   fonts.googleapis.com        style.css line 1 @imports Poppins
+#   font-src    fonts.gstatic.com           the font files that CSS then pulls
+#
+#   connect-src cloudflareinsights.com      where the beacon POSTs its data
+#               cdn.jsdelivr.net            source maps, fetched only when
+#                                           devtools is open — drop this one if
+#                                           you would rather keep it tight
+#
+# Everything else stays locked to 'self'. If you disable Web Analytics in the
+# Cloudflare dashboard, remove both cloudflareinsights entries.

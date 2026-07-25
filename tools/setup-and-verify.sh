@@ -146,6 +146,10 @@ assert_grep    "admin words dictionary-checked"                 "not in the word
 assert_grep    "schema is non-destructive"                      "CREATE TABLE IF NOT EXISTS" schema.sql
 assert_no_grep "no DROP TABLE in schema.sql"                    "DROP TABLE"                schema.sql
 assert_grep    "security headers present"                       "Content-Security-Policy"   public/_headers
+assert_grep    "CSP allows the Google Fonts stylesheet"         "fonts\.googleapis\.com"    public/_headers
+assert_grep    "CSP allows the Google Fonts files"              "fonts\.gstatic\.com"       public/_headers
+assert_grep    "CSP allows the Cloudflare Insights beacon"      "static\.cloudflareinsights\.com" public/_headers
+assert_grep    "CSP allows confetti from jsdelivr"              "cdn\.jsdelivr\.net"        public/_headers
 assert_grep    "og tags present"                                "og:image"                  public/index.html
 assert_no_grep "viewport allows zoom"                           "user-scalable=no"          public/index.html
 
