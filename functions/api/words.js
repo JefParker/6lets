@@ -1,19 +1,9 @@
+import { getCurrentGameId } from '../../lib/puzzle.js';
+
 export async function onRequestGet(context) {
     const { env } = context;
-    
-    // Get current LA game ID (e.g. 2026-07-08-AM)
-    const options = { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false };
-    const formatter = new Intl.DateTimeFormat('en-US', options);
-    const parts = formatter.formatToParts(new Date());
-    let year, month, day, hour;
-    for (const part of parts) {
-        if (part.type === 'year') year = part.value;
-        if (part.type === 'month') month = part.value;
-        if (part.type === 'day') day = part.value;
-        if (part.type === 'hour') hour = parseInt(part.value, 10);
-    }
-    const ampm = hour < 12 ? 'AM' : 'PM';
-    const currentGameId = `${year}-${month}-${day}-${ampm}`;
+
+    const currentGameId = getCurrentGameId();
 
     // Only return a small look-ahead window (current game + next few half-days).
     // Enough to keep offline play working across a game rollover, without
@@ -34,7 +24,14 @@ export async function onRequestGet(context) {
             headers: { 'Content-Type': 'application/json' }
         });
     } catch (e) {
-        return new Response(JSON.stringify([]), {
+        console.error('GET /api/words failed:', e);
+        // Never return 200 with an empty list here. The client caches whatever
+        // this endpoint returns as its offline word list, so a 200 + [] on a
+        // transient DB error would wipe a valid cache and drop every player
+        // onto the offline fallback word. A 5xx makes the client keep its
+        // last-known-good cache.
+        return new Response(JSON.stringify({ error: 'Failed to load words' }), {
+            status: 500,
             headers: { 'Content-Type': 'application/json' }
         });
     }

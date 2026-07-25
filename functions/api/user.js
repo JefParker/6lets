@@ -1,14 +1,27 @@
-function getPuzzleNumber(gameIdStr) {
-    if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
-    const parts = gameIdStr.split('-');
-    if (parts.length !== 4) return 3298;
-    const [year, month, day, ampm] = parts;
-    const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    const epochDate = new Date(2026, 6, 8); // July 8, 2026
-    const diffDays = Math.round((puzzleDate - epochDate) / (1000 * 60 * 60 * 24));
-    
-    const offset = (diffDays * 2) + (ampm === 'AM' ? 0 : 1);
-    return 3298 + offset; 
+import { getPuzzleNumber } from '../../lib/puzzle.js';
+
+const MAX_DISPLAY_NAME_LENGTH = 24;
+
+// Reject control characters and angle brackets. The dashboard escapes on render
+// too — this is the second layer of defence, not the only one.
+function hasDisallowedChars(str) {
+    if (str.includes('<') || str.includes('>')) return true;
+    for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        if (code < 32 || code === 127) return true;
+    }
+    return false;
+}
+
+function normalizeDisplayName(value) {
+    if (value == null) return { ok: true, value: '' };
+    if (typeof value !== 'string') return { ok: false };
+
+    const trimmed = value.trim();
+    if (trimmed.length > MAX_DISPLAY_NAME_LENGTH) return { ok: false };
+    if (hasDisallowedChars(trimmed)) return { ok: false };
+
+    return { ok: true, value: trimmed };
 }
 
 export async function onRequestGet(context) {
@@ -61,12 +74,13 @@ export async function onRequestGet(context) {
             } else {
                 unfinishedGames++;
             }
-            
+
             if (recentGames.length < 10) {
                 const puzzleNum = getPuzzleNumber(row.game_id);
-                const gameIdText = `#${puzzleNum}`;
-                const resultText = row.solved_successfully === 1 ? `${row.guesses_taken} guesses` : 'X guesses';
-                recentGames.push(`${gameIdText} ${row.word} - ${resultText}`);
+                if (puzzleNum !== null) {
+                    const resultText = row.solved_successfully === 1 ? `${row.guesses_taken} guesses` : 'X guesses';
+                    recentGames.push(`#${puzzleNum} ${row.word} - ${resultText}`);
+                }
             }
         }
 
@@ -77,10 +91,10 @@ export async function onRequestGet(context) {
             '6lets_totalGuesses': totalGuessesFinished,
             '6lets_recentGames': JSON.stringify(recentGames)
         };
-        
+
         const userRow = await env.DB.prepare('SELECT display_name FROM Users WHERE uuid = ?').bind(uuid).first();
         stats.display_name = userRow ? userRow.display_name || '' : '';
-        
+
         if (cloudGameState) {
             stats.cloud_gameState = cloudGameState;
             stats.cloud_guesses = cloudGuesses;
@@ -91,7 +105,11 @@ export async function onRequestGet(context) {
             headers: { 'Content-Type': 'application/json' }
         });
     } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+        console.error('GET /api/user failed:', e);
+        return new Response(JSON.stringify({ error: 'Failed to load user' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 }
 
@@ -100,16 +118,29 @@ export async function onRequestPost(context) {
     try {
         const body = await request.json();
         const { uuid, display_name } = body;
-        
+
         if (!uuid) return new Response(JSON.stringify({ error: 'Missing uuid' }), { status: 400 });
-        
+
+        const name = normalizeDisplayName(display_name);
+        if (!name.ok) {
+            return new Response(JSON.stringify({
+                error: `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer and cannot contain < or >`
+            }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
         await env.DB.prepare(
             `INSERT INTO Users (uuid, display_name) VALUES (?, ?)
              ON CONFLICT(uuid) DO UPDATE SET display_name = excluded.display_name`
-        ).bind(uuid, display_name).run();
+        ).bind(uuid, name.value).run();
 
-        return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' }});
+        return new Response(JSON.stringify({ success: true, display_name: name.value }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
     } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+        console.error('POST /api/user failed:', e);
+        return new Response(JSON.stringify({ error: 'Failed to save user' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 }

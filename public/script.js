@@ -38,26 +38,44 @@ if (!safeStorage.getItem('6lets_wiped_v1')) {
 
 const WORD_LENGTH = 6;
 const MAX_GUESSES = 10;
+const RECENT_GAMES_LIMIT = 10;
+// Ceiling on the offline result queue so a persistent server-side rejection
+// can't grow it without bound.
+const MAX_PENDING_SYNC = 50;
 let guesses = [];
 let currentGuess = '';
 let gameId = '';
 let targetWord = 'SODIUM'; // Fallback offline word
+// False while `targetWord` is still the fallback, i.e. we don't actually know
+// today's answer yet.
+let targetWordResolved = false;
 let gameState = 'playing'; // playing, won, lost
 let startTime = null;
 let elapsedTimeMs = 0;
-let offlineWords = [];
+// True while a submitted guess is mid flip-reveal; input is locked out.
+let isRevealing = false;
 
 // Theme initialization
 const savedTheme = safeStorage.getItem('6lets_theme') || 'original';
 document.documentElement.setAttribute('data-theme', savedTheme);
 
+// Puzzle identity. Mirrors lib/puzzle.js on the server — keep the two in sync.
+const PUZZLE_EPOCH_NUMBER = 3298;
+const PUZZLE_EPOCH_UTC = Date.UTC(2026, 6, 8); // July 8, 2026
+const GAME_ID_PATTERN = /^\d{4}-\d{2}-\d{2}-(AM|PM)$/;
+
 // Determine Game ID and Date (LA Time)
+//
+// NOTE: `hour12: false` is deliberately NOT used. It selects hour cycle h24 in
+// several engines, which formats midnight as "24" rather than "00" — that reads
+// as >= 12 and served the PM word during the first hour of the AM puzzle.
+// `hourCycle: 'h23'` is unambiguous.
 function getGameId() {
     // Current time in Los Angeles
-    const options = { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false };
+    const options = { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' };
     const formatter = new Intl.DateTimeFormat('en-US', options);
     const parts = formatter.formatToParts(new Date());
-    
+
     let year, month, day, hour;
     for (const part of parts) {
         if (part.type === 'year') year = part.value;
@@ -65,23 +83,27 @@ function getGameId() {
         if (part.type === 'day') day = part.value;
         if (part.type === 'hour') hour = parseInt(part.value, 10);
     }
-    
+
+    // Belt and braces in case an engine still hands back h24.
+    if (hour === 24) hour = 0;
+
     const ampm = hour < 12 ? 'AM' : 'PM';
     return `${year}-${month}-${day}-${ampm}`;
 }
 
 function getUserUUID() {
-    let uuid = safeStorage.getItem('6lets_uuid');
-    if (!uuid) {
-        // Prefer crypto.randomUUID (secure contexts); fall back to a manual v4
-        // generator so first-run still works if it's unavailable.
-        uuid = (crypto && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-    }
+    const existing = safeStorage.getItem('6lets_uuid');
+    if (existing) return existing;
+
+    // Prefer crypto.randomUUID (secure contexts); fall back to a manual v4
+    // generator so first-run still works if it's unavailable.
+    const uuid = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+
     safeStorage.setItem('6lets_uuid', uuid);
     return uuid;
 }
@@ -296,7 +318,12 @@ function showToast(message) {
 // Game Logic
 function handleKeyPress(key) {
     if (gameState !== 'playing') return;
-    
+    // The submitted row stays as #active-row for the ~1s the flip animation
+    // runs. Accepting input during that window let updateActiveRow() overwrite
+    // the tiles being revealed (blanking the word the player just entered) and
+    // could re-enter submitGuess() against the stale row.
+    if (isRevealing) return;
+
     // Start timer on first keystroke if not already running
     if (startTime === null && key !== 'Enter' && key !== 'Backspace') {
         startTime = Date.now();
@@ -338,10 +365,19 @@ function shakeRow() {
 
 function submitGuess() {
     const activeRow = document.getElementById('active-row');
+    if (!activeRow) {
+        // No row to reveal into (e.g. state was restored mid-reveal). Re-render
+        // and let the next frame supply one rather than throwing.
+        renderBoard();
+        return;
+    }
     guesses.push(currentGuess);
     const guessSubmitted = currentGuess;
     currentGuess = '';
-    
+    // Lock input until the reveal finishes (see handleKeyPress).
+    isRevealing = true;
+    activeRow.removeAttribute('id');
+
     // Flip animations
     for (let i = 0; i < WORD_LENGTH; i++) {
         const tile = activeRow.children[i];
@@ -352,6 +388,7 @@ function submitGuess() {
                 const evaluation = evaluateGuess(guessSubmitted, targetWord);
                 tile.dataset.state = evaluation[i];
                 if (i === WORD_LENGTH - 1) {
+                    isRevealing = false;
                     checkWinCondition();
                     if (gameState === 'playing') {
                         renderBoard(); // render next row
@@ -363,37 +400,52 @@ function submitGuess() {
     saveState();
 }
 
+// Single source of truth for puzzle numbering. Returns null for a malformed
+// game id rather than NaN or a silently wrong number.
 function getPuzzleNumber(gameIdStr) {
-    if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
+    if (typeof gameIdStr !== 'string' || !GAME_ID_PATTERN.test(gameIdStr)) return null;
+
     const [year, month, day, ampm] = gameIdStr.split('-');
-    const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    const epochDate = new Date(2026, 6, 8); // July 8, 2026
-    const diffDays = Math.round((puzzleDate - epochDate) / (1000 * 60 * 60 * 24));
-    
-    const offset = (diffDays * 2) + (ampm === 'AM' ? 0 : 1);
-    return 3298 + offset; 
+    const puzzleDate = Date.UTC(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+    const diffDays = Math.round((puzzleDate - PUZZLE_EPOCH_UTC) / (1000 * 60 * 60 * 24));
+
+    return PUZZLE_EPOCH_NUMBER + (diffDays * 2) + (ampm === 'AM' ? 0 : 1);
 }
 
-function autoRecoverStreak(rGames, currentStreak) {
+// Rebuild the streak from recorded history.
+//
+// `anchorPuzzle` is the puzzle the player is currently on. The recovered run
+// must reach up to it (or the puzzle immediately before it, for a streak that
+// is intact but today is unplayed) — otherwise the run is stale history and
+// must NOT be used, or it would silently resurrect a streak that was correctly
+// broken by a missed puzzle.
+function autoRecoverStreak(rGames, currentStreak, anchorPuzzle) {
     if (!rGames || rGames.length === 0) return currentStreak;
-    
+    if (typeof anchorPuzzle !== 'number' || !Number.isFinite(anchorPuzzle)) return currentStreak;
+
     const completedPuzzles = [];
     for (let i = 0; i < rGames.length; i++) {
         const game = rGames[i];
+        if (typeof game !== 'string') continue;
         if (game.includes("- X guesses")) continue;
         const match = game.match(/^#(\d+) /);
         if (match) {
-            completedPuzzles.push(parseInt(match[1]));
+            completedPuzzles.push(parseInt(match[1], 10));
         }
     }
-    
+
     if (completedPuzzles.length === 0) return currentStreak;
-    
+
     completedPuzzles.sort((a, b) => b - a);
-    
+
+    // The most recent completed puzzle must be the current one or the one right
+    // before it. Anything older means at least one puzzle was missed.
+    const mostRecent = completedPuzzles[0];
+    if (mostRecent < anchorPuzzle - 1) return currentStreak;
+
     let calcStreak = 1;
-    let expectedNext = completedPuzzles[0] - 1;
-    
+    let expectedNext = mostRecent - 1;
+
     for (let i = 1; i < completedPuzzles.length; i++) {
         if (completedPuzzles[i] === expectedNext) {
             calcStreak++;
@@ -402,14 +454,14 @@ function autoRecoverStreak(rGames, currentStreak) {
             break;
         }
     }
-    
-    // Fix for legacy capped recentGames: if the entire recorded history is consecutive, 
-    // it got capped at 10 (the old limit), and no games were failed, 
+
+    // Fix for legacy capped recentGames: if the entire recorded history is consecutive,
+    // it got capped at 10 (the old limit), and no games were failed,
     // their true streak may equal completedGames.
     if (calcStreak === completedPuzzles.length && calcStreak >= 10 && unfinishedGames === 0 && completedGames > calcStreak) {
         calcStreak = completedGames;
     }
-    
+
     return Math.max(currentStreak, calcStreak);
 }
 
@@ -418,10 +470,13 @@ function checkWinCondition() {
     if (lastGuess === targetWord) {
         gameState = 'won';
         const puzzleNum = getPuzzleNumber(gameId);
-        const gameIdText = `#${puzzleNum}`;
-        const resultText = `${guesses.length} guesses`;
-        recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
-        recentGames.unshift(`${gameIdText} ${targetWord} - ${resultText}`);
+        if (puzzleNum !== null) {
+            const gameIdText = `#${puzzleNum}`;
+            const resultText = `${guesses.length} guesses`;
+            recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
+            recentGames.unshift(`${gameIdText} ${targetWord} - ${resultText}`);
+            if (recentGames.length > RECENT_GAMES_LIMIT) recentGames.length = RECENT_GAMES_LIMIT;
+        }
         completedGames++;
         totalGuessesFinished += guesses.length;
         guessDistribution[guesses.length - 1]++;
@@ -432,25 +487,29 @@ function checkWinCondition() {
         let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
         let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
         
-        if (lastCompletedPuzzle === 0 || puzzleNum === lastCompletedPuzzle + 1) {
-            // First ever solve, or the immediate next puzzle: extend the streak.
-            currentStreak++;
-        } else if (puzzleNum > lastCompletedPuzzle + 1) {
-            // Skipped one or more puzzles: streak restarts at this solve.
-            currentStreak = 1;
-        } else {
-            // puzzleNum <= lastCompletedPuzzle: replaying/back-filling an older
-            // puzzle. Don't touch the streak (and never double-count).
+        if (puzzleNum !== null) {
+            if (lastCompletedPuzzle === 0 || puzzleNum === lastCompletedPuzzle + 1) {
+                // First ever solve, or the immediate next puzzle: extend the streak.
+                currentStreak++;
+            } else if (puzzleNum > lastCompletedPuzzle + 1) {
+                // Skipped one or more puzzles: streak restarts at this solve.
+                currentStreak = 1;
+            } else {
+                // puzzleNum <= lastCompletedPuzzle: replaying/back-filling an older
+                // puzzle. Don't touch the streak (and never double-count).
+            }
+
+            currentStreak = autoRecoverStreak(recentGames, currentStreak, puzzleNum);
         }
 
-        currentStreak = autoRecoverStreak(recentGames, currentStreak);
-        
         if (currentStreak > completedGames) {
             currentStreak = completedGames;
         }
-        
+
         safeStorage.setItem('6lets_streak', currentStreak);
-        safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
+        if (puzzleNum !== null) {
+            safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
+        }
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = currentStreak;
         
@@ -472,14 +531,21 @@ function checkWinCondition() {
     } else if (guesses.length === MAX_GUESSES) {
         gameState = 'lost';
         const puzzleNum = getPuzzleNumber(gameId);
-        const gameIdText = `#${puzzleNum}`;
-        recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
-        recentGames.unshift(`${gameIdText} ${targetWord} - X guesses`);
-        if (recentGames.length > 10) recentGames.length = 10;
+        if (puzzleNum !== null) {
+            const gameIdText = `#${puzzleNum}`;
+            recentGames = recentGames.filter(game => !game.startsWith(`${gameIdText} `));
+            recentGames.unshift(`${gameIdText} ${targetWord} - X guesses`);
+            if (recentGames.length > RECENT_GAMES_LIMIT) recentGames.length = RECENT_GAMES_LIMIT;
+        }
         unfinishedGames++;
-        
+
         safeStorage.setItem('6lets_streak', 0);
-        safeStorage.setItem('6lets_lastCompletedPuzzle', puzzleNum);
+        if (puzzleNum !== null) {
+            // Only ever move the marker forward — replaying an older puzzle
+            // must not rewind it.
+            const lastCompleted = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
+            safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompleted, puzzleNum));
+        }
         const historyBtnText = document.getElementById('history-btn-text');
         if (historyBtnText) historyBtnText.textContent = '0';
         
@@ -504,20 +570,38 @@ function finishGame() {
         solved_successfully: gameState === 'won',
         guesses: JSON.stringify(guesses)
     };
-    
+
     saveState();
-    
-    // Queue offline sync
-    let pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
+    persistAggregateStats();
+
+    // Queue offline sync. Replace any existing entry for this game rather than
+    // appending — finishing the same puzzle twice (e.g. after a cloud restore)
+    // used to add a duplicate every time.
+    let pending;
+    try {
+        pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
+        if (!Array.isArray(pending)) pending = [];
+    } catch (e) {
+        pending = [];
+    }
+    pending = pending.filter(p => !(p && p.user_uuid === result.user_uuid && p.game_id === result.game_id));
     pending.push(result);
+    if (pending.length > MAX_PENDING_SYNC) {
+        pending = pending.slice(-MAX_PENDING_SYNC);
+    }
     safeStorage.setItem('pending_sync', JSON.stringify(pending));
-    
+
     syncResults(); // Try to sync immediately
     
     setTimeout(() => handlePostGame(), 1500);
 }
 
+// The graph has 11 buckets (1-10 guesses, plus a failure column). Pad short
+// inputs so a 10-element distribution can't produce NaN bar heights.
+const GRAPH_BUCKETS = 11;
+
 function buildGraph(distributionData, container, textElement, highlightGameStatus = null, highlightGuessCount = 0, hideHighlight = false, wordLabel = "") {
+    distributionData = Array.from({ length: GRAPH_BUCKETS }, (_, i) => Number(distributionData[i]) || 0);
     let chartData = [...distributionData];
     if (highlightGameStatus === 'won' && highlightGuessCount > 0) {
         chartData[highlightGuessCount - 1] = Math.max(1, chartData[highlightGuessCount - 1]);
@@ -701,7 +785,9 @@ function showStatsModal() {
     overlay.classList.remove('hidden');
 }
 
-document.querySelector('.close-btn').addEventListener('click', () => {
+// Targeted by id — `document.querySelector('.close-btn')` happened to match the
+// stats modal only because it sits first in the DOM.
+document.getElementById('close-stats-btn').addEventListener('click', () => {
     document.getElementById('stats-modal').classList.add('hidden');
     document.getElementById('modal-overlay').classList.add('hidden');
 });
@@ -744,21 +830,9 @@ const getShareText = () => {
         emojiGrid += row + '\n';
     });
     
-    const getPuzzleNumber = (gameIdStr) => {
-        if (!gameIdStr) return 3298; // fallback matches the epoch base (July 8 2026 AM)
-        const parts = gameIdStr.split('-');
-        if (parts.length !== 4) return 3298; // fallback matches the epoch base (July 8 2026 AM)
-        const [year, month, day, ampm] = parts;
-        const puzzleDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-        const epochDate = new Date(2026, 6, 8); // July 8, 2026
-        const diffDays = Math.round((puzzleDate - epochDate) / (1000 * 60 * 60 * 24));
-        
-        const offset = (diffDays * 2) + (ampm === 'AM' ? 0 : 1);
-        return 3298 + offset; 
-    };
-
     const puzzleNum = getPuzzleNumber(gameId);
-    return `Six Letters\n${dateString} (#${puzzleNum})\n${emojiGrid}https://6lets.com/`;
+    const puzzleLabel = puzzleNum === null ? dateString : `${dateString} (#${puzzleNum})`;
+    return `Six Letters\n${puzzleLabel}\n${emojiGrid}https://6lets.com/`;
 };
 
 const copyToClipboard = (textToShare) => {
@@ -933,6 +1007,48 @@ document.getElementById('close-help-btn').addEventListener('click', () => {
 });
 
 // State Management
+
+// Per-puzzle keys ('gameState_<id>' and '6lets_globalStats_<id>') accumulate at
+// four a day and were never cleaned up. safeStorage swallows
+// QuotaExceededError, so the eventual failure mode is state silently ceasing to
+// save — prune old ones instead.
+function listStorageKeys() {
+    try {
+        return Object.keys(window.localStorage);
+    } catch (e) {
+        return [];
+    }
+}
+
+function clearAllGameStateKeys() {
+    listStorageKeys()
+        .filter(key => key.startsWith('gameState_'))
+        .forEach(key => safeStorage.removeItem(key));
+}
+
+function pruneOldStorageKeys(keepGameIds) {
+    const keep = new Set(keepGameIds.filter(Boolean));
+    listStorageKeys().forEach(key => {
+        let id = null;
+        if (key.startsWith('gameState_')) id = key.slice('gameState_'.length);
+        else if (key.startsWith('6lets_globalStats_')) id = key.slice('6lets_globalStats_'.length);
+
+        if (id !== null && !keep.has(id)) {
+            safeStorage.removeItem(key);
+        }
+    });
+}
+
+// Aggregates only change when a game finishes, so they don't belong in the
+// per-keystroke write path.
+function persistAggregateStats() {
+    safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
+    safeStorage.setItem('6lets_completed', completedGames);
+    safeStorage.setItem('6lets_unfinished', unfinishedGames);
+    safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
+    safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+}
+
 function saveState() {
     const state = {
         guesses,
@@ -943,11 +1059,18 @@ function saveState() {
         lastSaved: Date.now()
     };
     safeStorage.setItem(`gameState_${gameId}`, JSON.stringify(state));
-    safeStorage.setItem('6lets_distribution', JSON.stringify(guessDistribution));
-    safeStorage.setItem('6lets_completed', completedGames);
-    safeStorage.setItem('6lets_unfinished', unfinishedGames);
-    safeStorage.setItem('6lets_totalGuesses', totalGuessesFinished);
-    safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
+}
+
+function readSavedGameState(id) {
+    const raw = safeStorage.getItem(`gameState_${id}`);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : null;
+    } catch (e) {
+        console.warn('Could not parse saved game state for', id, e);
+        return null;
+    }
 }
 
 function loadState() {
@@ -957,50 +1080,75 @@ function loadState() {
     if (lastGameId && lastGameId !== gameId) {
         const lastStateStr = safeStorage.getItem(`gameState_${lastGameId}`);
         if (lastStateStr) {
-            const lastState = JSON.parse(lastStateStr);
-            if (lastState.gameState === 'playing' && lastState.guesses && lastState.guesses.length > 0) {
-                unfinishedGames++;
-                safeStorage.setItem('6lets_unfinished', unfinishedGames);
-                lastState.gameState = 'lost';
-                safeStorage.setItem(`gameState_${lastGameId}`, JSON.stringify(lastState));
+            try {
+                const lastState = JSON.parse(lastStateStr);
+                if (lastState.gameState === 'playing' && lastState.guesses && lastState.guesses.length > 0) {
+                    unfinishedGames++;
+                    safeStorage.setItem('6lets_unfinished', unfinishedGames);
+                    lastState.gameState = 'lost';
+                    safeStorage.setItem(`gameState_${lastGameId}`, JSON.stringify(lastState));
+                }
+            } catch (e) {
+                console.warn('Could not parse previous game state', e);
             }
         }
     }
     safeStorage.setItem('6lets_lastGameId', gameId);
 
-    const savedStateStr = safeStorage.getItem(`gameState_${gameId}`);
-    if (savedStateStr) {
-        const savedState = JSON.parse(savedStateStr);
+    // Only the current and immediately previous puzzle are ever read back.
+    pruneOldStorageKeys([gameId, lastGameId]);
+
+    const savedState = readSavedGameState(gameId);
+    if (savedState) {
         guesses = savedState.guesses || [];
         currentGuess = savedState.currentGuess || '';
         gameState = savedState.gameState || 'playing';
-        startTime = savedState.startTime || null;
         elapsedTimeMs = savedState.elapsedTimeMs || 0;
+
+        // Never resume a persisted startTime. If the browser was force-killed
+        // (or backgrounded in a way that never fired visibilitychange), it can
+        // be hours or days old, and finishGame() would add that entire absence
+        // to the player's time. Only the segment we can actually verify — from
+        // the start marker to the last save — is banked; the clock then
+        // restarts on the next keystroke.
+        const savedStart = savedState.startTime || null;
+        const lastSaved = savedState.lastSaved || 0;
+        if (savedStart !== null && lastSaved > savedStart) {
+            elapsedTimeMs += (lastSaved - savedStart);
+        }
+        startTime = null;
     }
-    
+
     // Check if missed a puzzle to break streak
     let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
     let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
     const currentPuzzle = getPuzzleNumber(gameId);
     
-    if (gameState === 'playing' && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
+    if (gameState === 'playing' && currentPuzzle !== null && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
         safeStorage.setItem('6lets_streak', 0);
         currentStreak = 0;
-        
-        if (recentGames.length > 10) {
-            recentGames.length = 10;
+
+        if (recentGames.length > RECENT_GAMES_LIMIT) {
+            recentGames.length = RECENT_GAMES_LIMIT;
             safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
         }
     }
-    
-    // Auto-recover streak from recent games if it was incorrectly lost
+
+    // Auto-recover the streak from recent games if it was incorrectly lost.
+    // Anchored to the current puzzle: without that anchor this ran right after
+    // the reset above and simply restored the streak it had just broken, since
+    // the old consecutive run is still sitting in recentGames.
     const recentGamesStr = safeStorage.getItem('6lets_recentGames');
-    if (recentGamesStr) {
-        const rGames = JSON.parse(recentGamesStr);
-        let calcStreak = autoRecoverStreak(rGames, 0);
-        if (calcStreak > currentStreak) {
-            currentStreak = calcStreak;
-            safeStorage.setItem('6lets_streak', currentStreak);
+    if (recentGamesStr && currentPuzzle !== null) {
+        try {
+            const rGames = JSON.parse(recentGamesStr);
+            const calcStreak = autoRecoverStreak(rGames, 0, currentPuzzle);
+            if (calcStreak > currentStreak) {
+                currentStreak = calcStreak;
+                safeStorage.setItem('6lets_streak', currentStreak);
+            }
+        } catch (e) {
+            console.warn('Could not parse recent games', e);
         }
     }
     
@@ -1008,20 +1156,25 @@ function loadState() {
     if (historyBtnText) historyBtnText.textContent = currentStreak;
 }
 
-// Pause timer when hiding page
-document.addEventListener('visibilitychange', () => {
+// Pause the timer whenever the page goes away. `pagehide` covers the cases
+// visibilitychange misses — notably iOS Safari tab teardown and bfcache entry.
+function pauseTimer() {
     if (gameState !== 'playing') return;
-    
+    if (startTime === null) return;
+    elapsedTimeMs += (Date.now() - startTime);
+    startTime = null;
+    saveState();
+}
+
+document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-        if (startTime !== null) {
-            elapsedTimeMs += (Date.now() - startTime);
-            startTime = null;
-            saveState();
-        }
-    } else if (document.visibilityState === 'visible') {
-        // We do not resume startTime here. We wait for next keystroke as per requirements.
+        pauseTimer();
     }
+    // We do not resume startTime on 'visible'. We wait for the next keystroke
+    // as per requirements.
 });
+
+window.addEventListener('pagehide', pauseTimer);
 
 // Setup Physical Keyboard
 document.addEventListener('keydown', (e) => {
@@ -1046,7 +1199,14 @@ document.addEventListener('keydown', (e) => {
 async function syncResults() {
     if (!navigator.onLine) return false;
 
-    const pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
+    let pending;
+    try {
+        pending = JSON.parse(safeStorage.getItem('pending_sync') || '[]');
+        if (!Array.isArray(pending)) pending = [];
+    } catch (e) {
+        safeStorage.setItem('pending_sync', '[]');
+        return true;
+    }
     if (pending.length === 0) return true;
 
     try {
@@ -1059,8 +1219,18 @@ async function syncResults() {
         });
 
         if (response.ok) {
+            // The server validates and drops bad records rather than failing
+            // the request, so a 2xx means "everything processable was
+            // processed" — safe to clear.
             safeStorage.setItem('pending_sync', '[]');
             return true;
+        }
+
+        // A 4xx means the payload will never be accepted; retrying it forever
+        // would block every later result behind it. Only retry on 5xx.
+        if (response.status >= 400 && response.status < 500) {
+            console.warn('Server rejected pending results; discarding queue.');
+            safeStorage.setItem('pending_sync', '[]');
         }
         return false;
     } catch (e) {
@@ -1069,25 +1239,81 @@ async function syncResults() {
     return false;
 }
 
+function readOfflineWords() {
+    try {
+        const parsed = JSON.parse(safeStorage.getItem('offline_words') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        return [];
+    }
+}
+
 async function fetchOfflineWords() {
     try {
         const response = await fetch('/api/words');
-        if (response.ok) {
-            const data = await response.json(); // Array of { id, word: base64 }
-            safeStorage.setItem('offline_words', JSON.stringify(data));
+        if (!response.ok) return;
+
+        const data = await response.json(); // Array of { id, word: base64 }
+        if (!Array.isArray(data)) return;
+
+        // Never let a degraded response clobber a good cache. An empty list
+        // means "we couldn't tell you" far more often than "there are no
+        // words", and overwriting on it drops every player onto the offline
+        // fallback word mid-game.
+        if (data.length === 0) {
+            console.warn('Word list came back empty; keeping cached words.');
+            return;
         }
+
+        safeStorage.setItem('offline_words', JSON.stringify(data));
     } catch (e) {
         console.error('Failed to fetch offline words', e);
     }
 }
 
-function determineTargetWord() {
-    const offline = JSON.parse(safeStorage.getItem('offline_words') || '[]');
-    const match = offline.find(w => w.id === gameId);
-    if (match) {
-        targetWord = atob(match.word).toUpperCase();
+// A guess is pushed and saved immediately, but the win/loss check only runs
+// after the ~1s flip reveal. If the page unloads inside that window the state
+// persists as 'playing' with a decided board — leaving a game that can never be
+// completed (and, on the 10th guess, no active row to type into). Resolve it on
+// load, once the target word is known.
+// Returns true if it resolved the game (finishGame will then have scheduled the
+// post-game modal itself).
+function resolveInterruptedGame() {
+    if (gameState !== 'playing' || guesses.length === 0) return false;
+
+    // Only safe once the real answer is known. Against the offline fallback
+    // word we would commit a wrong result — a loss recorded with the wrong word
+    // in history, or a bogus win — and it would be unrecoverable.
+    if (!targetWordResolved) return false;
+
+    const lastGuess = guesses[guesses.length - 1];
+    if (lastGuess === targetWord || guesses.length >= MAX_GUESSES) {
+        checkWinCondition();
+        return gameState !== 'playing';
     }
-    // Fallback is 'SODIUM' defined at the top
+    return false;
+}
+
+function determineTargetWord() {
+    const match = readOfflineWords().find(w => w && w.id === gameId);
+    if (!match) {
+        console.warn('No word cached for', gameId, '- using offline fallback.');
+        return; // Fallback is 'SODIUM' defined at the top
+    }
+
+    try {
+        const decoded = atob(match.word).toUpperCase();
+        if (decoded.length === WORD_LENGTH) {
+            targetWord = decoded;
+            targetWordResolved = true;
+        } else {
+            console.warn('Cached word for', gameId, 'is not', WORD_LENGTH, 'letters.');
+        }
+    } catch (e) {
+        // A corrupt cache entry used to throw out of the init chain, leaving
+        // the board unrendered.
+        console.warn('Could not decode cached word for', gameId, e);
+    }
 }
 
 // Sync Down logic
@@ -1111,7 +1337,8 @@ async function syncDown(force = false) {
             // server state for the new account.
             const localPlayed = completedGames + unfinishedGames;
             const serverPlayed = serverCompleted + serverUnfinished;
-            if (force || serverPlayed >= localPlayed) {
+            const adoptedServerSnapshot = force || serverPlayed >= localPlayed;
+            if (adoptedServerSnapshot) {
                 guessDistribution = serverDist;
                 completedGames = serverCompleted;
                 unfinishedGames = serverUnfinished;
@@ -1137,8 +1364,11 @@ async function syncDown(force = false) {
                 safeStorage.setItem('6lets_display_name', stats.display_name);
             }
 
-            // Sync current game board state if completed in cloud
-            if (stats.cloud_gameState && (gameState === 'playing' || force)) {
+            // Sync current game board state if completed in cloud. Only when we
+            // also took the server's aggregate snapshot — otherwise the board
+            // would show as finished while the local counters, which we kept
+            // because they were ahead, know nothing about it.
+            if (stats.cloud_gameState && adoptedServerSnapshot && (gameState === 'playing' || force)) {
                 gameState = stats.cloud_gameState;
                 if (stats.cloud_guesses) {
                     guesses = JSON.parse(stats.cloud_guesses);
@@ -1258,16 +1488,16 @@ document.getElementById('update-display-name-btn').addEventListener('click', asy
             body: JSON.stringify({ uuid: getUserUUID(), display_name: val })
         });
         
+        updateDnBtn.textContent = 'Update';
+        updateDnBtn.disabled = false;
+
         if (res.ok) {
             safeStorage.setItem('6lets_display_name', val);
-            updateDnBtn.textContent = 'Update';
-            updateDnBtn.disabled = false;
             updateDnBtn.style.display = 'none';
             showToast('Display name updated');
         } else {
-            updateDnBtn.textContent = 'Update';
-            updateDnBtn.disabled = false;
-            showToast('Failed to update name');
+            const data = await res.json().catch(() => ({}));
+            showToast(data.error || 'Failed to update name');
         }
     } catch (e) {
         updateDnBtn.textContent = 'Update';
@@ -1361,14 +1591,21 @@ document.getElementById('update-uuid-btn').addEventListener('click', async () =>
     
     if (uuidRegex.test(newValue)) {
         safeStorage.setItem('6lets_uuid', newValue);
-        
-        // Wipe local game state to ensure we cleanly load the new UUID's state
-        safeStorage.removeItem('6lets_gameState');
-        safeStorage.removeItem('6lets_guesses');
-        safeStorage.removeItem('6lets_elapsedTimeMs');
+
+        // Wipe local game state so the new UUID's state loads cleanly. These
+        // used to remove '6lets_gameState' / '6lets_guesses' /
+        // '6lets_elapsedTimeMs', none of which are real keys — the actual key
+        // is `gameState_${gameId}`, so the incoming account inherited the
+        // previous player's board.
+        clearAllGameStateKeys();
+        safeStorage.removeItem('6lets_lastGameId');
+        safeStorage.removeItem('6lets_display_name');
         gameState = 'playing';
         guesses = [];
-        
+        currentGuess = '';
+        elapsedTimeMs = 0;
+        startTime = null;
+
         document.getElementById('update-uuid-btn').style.display = 'none';
         showToast('Player ID updated. Syncing...');
         await syncResults();
@@ -1384,26 +1621,22 @@ document.getElementById('update-uuid-btn').addEventListener('click', async () =>
 // Init
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(reg => {
-            reg.addEventListener('updatefound', () => {
-                const newWorker = reg.installing;
-                newWorker.addEventListener('statechange', () => {
-                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                        // Let the user know it's updating or just force reload
-                    }
-                });
-            });
-        }).catch(err => {
+        navigator.serviceWorker.register('/sw.js').catch(err => {
             console.error('ServiceWorker registration failed: ', err);
         });
-        
+
+        // Reload once when a new service worker takes control, so a shipped fix
+        // actually reaches the player instead of waiting behind a cache-first
+        // index.html. The `refreshing` latch prevents a reload loop.
         let refreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!refreshing) {
-                refreshing = true;
-                // Prevent infinite reload loops in dev mode
-                // window.location.reload();
-            }
+            if (refreshing) return;
+            refreshing = true;
+
+            // Don't interrupt a game in progress; the next load will pick it up.
+            if (gameState === 'playing' && guesses.length > 0) return;
+
+            window.location.reload();
         });
     });
 }
@@ -1422,18 +1655,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     fetchOfflineWords().then(() => {
         determineTargetWord();
+        // If this resolves the game it calls finishGame(), which already
+        // schedules the post-game modal — don't schedule a second one below.
+        const justResolved = resolveInterruptedGame();
         renderBoard();
-        
+
         // Sync results and then pull down state (now that gameId is known)
         if (navigator.onLine) {
-
-            
             syncResults().then(() => syncDown()).catch(e => console.warn('Background sync failed:', e));
         }
 
         if (gameState !== 'playing') {
             updateHeaderIconToStats();
-            setTimeout(handlePostGame, 500);
+            if (!justResolved) setTimeout(handlePostGame, 500);
         } else if (guesses.length === 0) {
             setTimeout(() => {
                 document.getElementById('help-modal').classList.remove('hidden');
@@ -1483,7 +1717,7 @@ document.getElementById('admin-login-submit-btn').addEventListener('click', () =
     attemptAdminLogin(user, pass);
 });
 
-document.getElementById('admin-logout-btn').addEventListener('click', () => {
+document.getElementById('admin-logout-btn').addEventListener('click', async () => {
     safeStorage.removeItem('hasAdminSession');
     safeStorage.removeItem('isAdmin');
     document.getElementById('admin-username-input').value = '';
@@ -1492,6 +1726,14 @@ document.getElementById('admin-logout-btn').addEventListener('click', () => {
     document.getElementById('modal-overlay').classList.add('hidden');
     const adminBtn = document.getElementById('admin-btn-header');
     if (adminBtn) adminBtn.style.display = 'none';
+
+    // The session cookie is HttpOnly, so clearing localStorage alone only hid
+    // the UI — the token stayed valid server-side for its full week.
+    try {
+        await fetch('/api/dashboard/logout', { method: 'POST' });
+    } catch (e) {
+        console.warn('Could not clear the admin session on the server', e);
+    }
 });
 
 document.getElementById('close-admin-dashboard-btn').addEventListener('click', () => {
@@ -1576,18 +1818,10 @@ async function selectAdminDate(dateStr, element) {
     document.getElementById('am-word').value = '';
     document.getElementById('pm-word').value = '';
     
-    function getPuzzleNumber(dStr, type) {
-        const [y, m, d] = dStr.split('-');
-        const puzzleDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
-        const epochDate = new Date(2026, 6, 8);
-        const diffDays = Math.round((puzzleDate - epochDate) / (1000 * 60 * 60 * 24));
-        return 3298 + (diffDays * 2) + (type === 'AM' ? 0 : 1);
-    }
-    
-    const amPuzzleNum = getPuzzleNumber(dateStr, 'AM');
-    const pmPuzzleNum = getPuzzleNumber(dateStr, 'PM');
-    document.getElementById('am-label').textContent = `AM Word - #${amPuzzleNum}`;
-    document.getElementById('pm-label').textContent = `PM Word - #${pmPuzzleNum}`;
+    const amPuzzleNum = getPuzzleNumber(`${dateStr}-AM`);
+    const pmPuzzleNum = getPuzzleNumber(`${dateStr}-PM`);
+    document.getElementById('am-label').textContent = amPuzzleNum === null ? 'AM Word' : `AM Word - #${amPuzzleNum}`;
+    document.getElementById('pm-label').textContent = pmPuzzleNum === null ? 'PM Word' : `PM Word - #${pmPuzzleNum}`;
     
     // Fetch words for this date
     try {
@@ -1659,38 +1893,58 @@ document.getElementById('am-word').addEventListener('input', validateSaveButton)
 document.getElementById('pm-word').addEventListener('input', validateSaveButton);
 
 document.getElementById('save-words-btn').addEventListener('click', async () => {
-    const amWord = document.getElementById('am-word').value.trim();
-    const pmWord = document.getElementById('pm-word').value.trim();
-    
+    const amWord = document.getElementById('am-word').value.trim().toUpperCase();
+    const pmWord = document.getElementById('pm-word').value.trim().toUpperCase();
+
     if (!navigator.onLine) {
         showToast('Admin features are unavailable while offline');
         return;
     }
-    
-    if ((amWord && amWord.length !== 6) || (pmWord && pmWord.length !== 6)) {
+
+    // Only send the halves that actually changed. Posting both unconditionally
+    // meant editing just the PM word would also submit an empty AM field —
+    // which the server treats as "delete".
+    const amChanged = amWord !== dashboardOriginalAmWord;
+    const pmChanged = pmWord !== dashboardOriginalPmWord;
+
+    // Validate only what's being saved. Validating both halves would make an
+    // already-stored word that isn't in the dictionary block edits to the
+    // other half of that date forever.
+    const changedWords = [amChanged ? amWord : '', pmChanged ? pmWord : ''].filter(Boolean);
+
+    if (changedWords.some(w => w.length !== 6)) {
         showToast('Words must be exactly 6 letters');
         return;
     }
 
+    // A word outside the dictionary makes the puzzle unwinnable — the player's
+    // guess is rejected as "Not in word list", so the answer can never be typed.
+    const invalid = changedWords.find(w => !VALID_WORDS.has(w.toLowerCase()));
+    if (invalid) {
+        showToast(`'${invalid}' is not in the word list`);
+        return;
+    }
+
     try {
+
         let amRes = { ok: true };
-        if (amWord !== undefined) {
+        if (amChanged) {
             amRes = await fetch('/api/dashboard/words', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ date: dashboardSelectedDateStr, type: 'AM', word: amWord })
             });
         }
-        
+
         let pmRes = { ok: true };
-        if (pmWord !== undefined && amRes.ok) {
+        if (pmChanged && amRes.ok) {
             pmRes = await fetch('/api/dashboard/words', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ date: dashboardSelectedDateStr, type: 'PM', word: pmWord })
             });
         }
-        
+
         if (!amRes.ok) {
             if (amRes.status === 401) {
                 showToast('Session expired. Please log in again.');
@@ -1828,18 +2082,26 @@ async function loadAdminLeaderboard(type) {
                 return;
             }
             
-            let html = '';
+            // display_name is player-controlled. Build these as text nodes —
+            // interpolating into innerHTML made any player able to run script
+            // inside the authenticated admin's session.
+            container.innerHTML = '';
             data.leaderboard.forEach((entry, index) => {
-                const name = entry.display_name || 'Anonymous';
-                const timeStr = formatTimeMs(entry.time_taken_ms);
-                html += `
-                    <div class="leaderboard-row">
-                        <div class="leaderboard-name">${index + 1}. ${name}</div>
-                        <div class="leaderboard-stats">${entry.guesses_taken} guess${entry.guesses_taken !== 1 ? 'es' : ''} | ${timeStr}</div>
-                    </div>
-                `;
+                const row = document.createElement('div');
+                row.className = 'leaderboard-row';
+
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'leaderboard-name';
+                nameDiv.textContent = `${index + 1}. ${entry.display_name || 'Anonymous'}`;
+
+                const statsDiv = document.createElement('div');
+                statsDiv.className = 'leaderboard-stats';
+                statsDiv.textContent = `${entry.guesses_taken} guess${entry.guesses_taken !== 1 ? 'es' : ''} | ${formatTimeMs(entry.time_taken_ms)}`;
+
+                row.appendChild(nameDiv);
+                row.appendChild(statsDiv);
+                container.appendChild(row);
             });
-            container.innerHTML = html;
         } else {
             container.innerHTML = '<div style="text-align: center; color: var(--text-color); margin-top: 20px;">Failed to load.</div>';
         }
@@ -1896,7 +2158,8 @@ document.getElementById('prompt-save-name-btn').addEventListener('click', async 
             const updateDnBtn = document.getElementById('update-display-name-btn');
             if (updateDnBtn) updateDnBtn.style.display = 'none';
         } else {
-            showToast('Failed to save name');
+            const data = await res.json().catch(() => ({}));
+            showToast(data.error || 'Failed to save name');
         }
     } catch (e) {
         showToast('Error saving name');
@@ -1915,9 +2178,11 @@ function checkForNewGame() {
     if (gameState === 'won' || gameState === 'lost') {
         const currentActiveGameId = getGameId();
         if (currentActiveGameId !== gameId && !newGamePromptShown) {
-            // Hide other modals just in case
-            document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
-            
+            // Don't yank the settings or admin dashboard out from under someone
+            // mid-edit — only close the game-flow modals.
+            ['stats-modal', 'history-modal', 'help-modal', 'name-prompt-modal']
+                .forEach(id => document.getElementById(id).classList.add('hidden'));
+
             document.getElementById('new-game-modal').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
             animateBouncyWord('new-game-word-container', 'NEW GAME!');
@@ -1947,21 +2212,26 @@ document.getElementById('play-new-game-btn').addEventListener('click', () => {
 let wakeLock = null;
 
 const requestWakeLock = async () => {
+    if (!('wakeLock' in navigator)) return;
+    if (wakeLock !== null && !wakeLock.released) return;
+
     try {
-        if ('wakeLock' in navigator) {
-            wakeLock = await navigator.wakeLock.request('screen');
-            wakeLock.addEventListener('release', () => {
-                console.log('Screen Wake Lock released:', wakeLock.released);
-            });
-            console.log('Screen Wake Lock acquired:', !wakeLock.released);
-        }
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => {
+            wakeLock = null;
+        });
     } catch (err) {
-        console.error(`Wake Lock error: ${err.name}, ${err.message}`);
+        // Commonly rejects when the document isn't visible — not worth logging
+        // as an error on every backgrounded load.
+        wakeLock = null;
     }
 };
 
+// Retry whenever we become visible again, not only when a lock was previously
+// held — the initial request fails if the page starts hidden, and the old
+// `wakeLock !== null` guard meant it was then never retried.
 document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible') {
         await requestWakeLock();
     }
 });

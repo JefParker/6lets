@@ -4,7 +4,7 @@
   "start_url": ".",
   "display": "standalone",
   "background_color": "#121213",
-  "theme_color": "#ff7547",
+  "theme_color": "#1e1e1e",
   "description": "A daily word puzzle. Guess the 6-letter word in 10 tries.",
   "orientation": "portrait-primary",
   "categories": ["games", "puzzle"],
@@ -35,12 +35,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "img/6lets-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ],
   "screenshots": [
@@ -55,12 +49,6 @@
       "sizes": "1080x1970",
       "type": "image/png",
       "form_factor": "narrow"
-    },
-    {
-      "src": "img/6Lets-Desktop-SS.png",
-      "sizes": "1920x1080",
-      "type": "image/png",
-      "form_factor": "wide"
     }
   ]
 }

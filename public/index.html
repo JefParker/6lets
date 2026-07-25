@@ -2,22 +2,35 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- user-scalable=no removed: it blocks pinch zoom (WCAG 1.4.4). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>6Lets</title>
     <meta name="description" content="A daily word puzzle. Guess the 6-letter word in 10 tries.">
-    
+
+    <!-- Social share card -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="6Lets">
+    <meta property="og:title" content="6Lets - Six Letters">
+    <meta property="og:description" content="A daily word puzzle. Guess the 6-letter word in 10 tries. New games 12AM &amp; 12PM PT.">
+    <meta property="og:url" content="https://6lets.com/">
+    <meta property="og:image" content="https://6lets.com/img/SummeryCard.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="6Lets - Six Letters">
+    <meta name="twitter:description" content="A daily word puzzle. Guess the 6-letter word in 10 tries. New games 12AM &amp; 12PM PT.">
+    <meta name="twitter:image" content="https://6lets.com/img/SummeryCard.png">
+
     <!-- PWA / iOS meta tags -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e1e1e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="img/6lets192.png">
     <link rel="icon" type="image/x-icon" href="img/6lets.ico">
     <link rel="icon" type="image/png" sizes="192x192" href="img/6lets192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="img/6lets512.png">
 
-    <link rel="stylesheet" href="style.css?v=36">
+    <link rel="stylesheet" href="style.css?v=37">
 </head>
 <body>
     <div id="game-container">
@@ -67,7 +80,7 @@
     <div id="message-toast" class="hidden"></div>
 
     <div id="stats-modal" class="modal hidden">
-        <button class="close-btn" aria-label="Close">✖</button>
+        <button id="close-stats-btn" class="close-btn" aria-label="Close">✖</button>
         <div id="stats-word-container"></div>
         <div class="share-actions">
             <button id="copy-btn">Copy</button>
@@ -118,7 +131,7 @@
         <button id="close-name-prompt-btn" class="close-btn" aria-label="Close">✖</button>
         <div id="prompt-word-container" class="bouncy-word-container" style="margin-bottom: 15px;"></div>
         <p style="margin-bottom: 20px; font-size: 1.1rem; color: var(--modal-color);">Enter a display name for the leaderboard:</p>
-        <input type="text" id="prompt-display-name-input" placeholder="Your Name" style="width: 100%; font-size: 1.1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 20px;">
+        <input type="text" id="prompt-display-name-input" maxlength="24" placeholder="Your Name" style="width: 100%; font-size: 1.1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 20px;">
         <div style="display: flex; gap: 10px; justify-content: center;">
             <button id="prompt-save-name-btn" style="background: darkred; color: white; border: none; padding: 10px 20px; font-size: 1.1rem; cursor: pointer; border-radius: 4px; flex-grow: 1;">Save</button>
             <button id="prompt-skip-btn" style="background: #ccc; color: #333; border: none; padding: 10px 20px; font-size: 1.1rem; cursor: pointer; border-radius: 4px;">Skip</button>
@@ -296,7 +309,7 @@
 
             <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Display Name</div>
             <div style="margin-bottom: 20px;">
-                <input type="text" id="display-name-input" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 5px;" placeholder="Your Name">
+                <input type="text" id="display-name-input" maxlength="24" style="width: 100%; font-size: 1rem; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; margin-bottom: 5px;" placeholder="Your Name">
                 <button id="update-display-name-btn" style="background: darkred; color: white; border: none; padding: 8px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px; display: none;">Update</button>
             </div>
 
@@ -335,6 +348,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=40"></script>
+    <script src="script.js?v=41"></script>
 </body>
 </html>

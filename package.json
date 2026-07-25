@@ -1,19 +1,19 @@
 {
   "name": "6lets",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "6Lets - a daily six-letter word puzzle (Cloudflare Pages + D1)",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "db:schema": "wrangler d1 execute sixlets-db --file=schema.sql",
+    "db:reset": "wrangler d1 execute sixlets-db --file=reset.sql"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "wrangler": "^4.107.1"
-  },
-  "dependencies": {
-    "puppeteer": "^25.3.0"
+    "wrangler": "^4.114.0"
   }
 }

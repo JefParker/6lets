@@ -6,4 +6,4 @@ compatibility_date = "2024-03-20"
 binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "sixlets-db"
 database_id = "7f51424d-8f1b-4ee1-a5d1-c79ce6f41a9e"
-preview_database_id = "7f51424d-8f1b-4ee1-a5d1-c79ce6f41a9e"
+preview_database_id = "5da8b71d-93bf-439f-a474-17d53a4a4789"
