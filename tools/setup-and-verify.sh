@@ -25,8 +25,16 @@ set -o pipefail
 PAGES_PROJECT="sixlets-pwa"
 D1_DATABASE="sixlets-db"
 
-DASHBOARD_USERNAME='JParker'
-DASHBOARD_PASSWORD='GdPC5BxFF2clHJl*'
+# Credentials are NOT stored in this file. It is tracked in git, so a password
+# here is a password on GitHub — and deleting it later does not remove it from
+# the history. Pass them in at run time instead:
+#
+#   DASHBOARD_USERNAME=JParker DASHBOARD_PASSWORD='...' bash tools/setup-and-verify.sh
+#
+# Leave either unset and step 6 (push secrets to Pages) is skipped. Steps 1-3,
+# the parts that actually verify anything, need no credentials at all.
+DASHBOARD_USERNAME="${DASHBOARD_USERNAME:-}"
+DASHBOARD_PASSWORD="${DASHBOARD_PASSWORD:-}"
 
 # --------------------------------------------------------------- plumbing ---
 PASS=0; FAIL=0; SKIP=0
@@ -134,6 +142,13 @@ assert_grep    "empty word list does not clobber cache"         "keeping cached 
 assert_grep    "results.js range-checks records"                "isValidRecord"             functions/api/results.js
 assert_grep    "results.js drops unknown game_ids"              "knownGameIds"              functions/api/results.js
 assert_grep    "sync queue is capped"                           "MAX_PENDING_SYNC"          public/script.js
+assert_grep    "failed syncs surface to the player"             "SYNC_FAILURE_WARN_THRESHOLD" public/script.js
+assert_grep    "sync warning has somewhere to render"           "id=\"sync-warning\""       public/index.html
+# The ON CONFLICT(user_uuid, game_id) upsert in results.js needs a uniqueness
+# constraint on that pair. The one in the CREATE TABLE only reaches databases
+# this file created, so the explicit index must stay. Dropping it took the
+# leaderboard down for ~26 hours on 2026-07-25.
+assert_grep    "results upsert has its unique index"            "idx_results_user_game"     schema.sql
 assert_grep    "streak recovery is anchored"                    "anchorPuzzle"              public/script.js
 assert_grep    "flip-reveal input lock"                         "isRevealing"               public/script.js
 assert_grep    "interrupted game resolver"                      "resolveInterruptedGame"    public/script.js
@@ -194,6 +209,9 @@ hdr "5. Local dev secrets (.dev.vars)"
 if [ -f .dev.vars ] && grep -q "SECRET_KEY" .dev.vars 2>/dev/null; then
   ok ".dev.vars already has SECRET_KEY — leaving it alone"
   LOCAL_SECRET=$(grep '^SECRET_KEY=' .dev.vars | head -n1 | cut -d= -f2- | tr -d '"')
+elif [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
+  skip "no .dev.vars, and DASHBOARD_USERNAME/DASHBOARD_PASSWORD not set — cannot write one"
+  LOCAL_SECRET=""
 else
   if command -v openssl >/dev/null 2>&1; then
     LOCAL_SECRET=$(openssl rand -base64 32)
@@ -211,7 +229,12 @@ fi
 # ============================================================= 6. SECRETS ===
 hdr "6. Push secrets to Cloudflare Pages"
 
-if ! npx --yes wrangler whoami >/dev/null 2>&1; then
+if [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
+  skip "DASHBOARD_USERNAME/DASHBOARD_PASSWORD not set — leaving the live secrets alone"
+  echo   '        This step overwrites the deployed admin credentials. To run it:'
+  echo   "          DASHBOARD_USERNAME=... DASHBOARD_PASSWORD='...' bash $0"
+  SECRETS_DONE=0
+elif ! npx --yes wrangler whoami >/dev/null 2>&1; then
   skip "not logged in to Cloudflare — run 'npx wrangler login' then re-run this script"
   SECRETS_DONE=0
 else

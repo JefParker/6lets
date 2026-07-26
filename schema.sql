@@ -38,12 +38,25 @@ CREATE TABLE IF NOT EXISTS Results (
 -- leftmost prefix of any existing index.
 CREATE INDEX IF NOT EXISTS idx_results_game_id ON Results(game_id);
 
--- No index on Results(user_uuid) is needed. UNIQUE(user_uuid, game_id) above
--- already creates an implicit index on that pair, and SQLite uses it for
--- `WHERE user_uuid = ?` (leftmost-prefix rule) — which is all /api/user does.
--- A standalone user_uuid index, or a duplicate (user_uuid, game_id) index,
--- costs a write on every result insert and buys nothing. See
--- tools/drop-redundant-indexes.sh.
+-- REQUIRED, not an optimisation. /api/results inserts with
+-- `ON CONFLICT(user_uuid, game_id) DO UPDATE`, and SQLite rejects a conflict
+-- target that no uniqueness constraint covers — every insert throws
+-- "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
+--
+-- The UNIQUE(user_uuid, game_id) declared in the CREATE TABLE above only ever
+-- reaches a database that this file *created*. Production's Results table
+-- predates that line, and CREATE TABLE IF NOT EXISTS silently skips an existing
+-- table, so production has never had the constraint — verified 2026-07-26 with
+-- PRAGMA index_list('Results'), which returned no row with origin='u'.
+--
+-- On 2026-07-25 this index was dropped as "redundant with the constraint".
+-- Production had no constraint to be redundant with, so every POST /api/results
+-- 500'd for ~26 hours and no result was recorded. Do not drop it again without
+-- first confirming `origin='u'` on the target database.
+--
+-- It also covers `WHERE user_uuid = ?` (leftmost-prefix rule), which is all
+-- /api/user does, so no separate Results(user_uuid) index is needed.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_results_user_game ON Results(user_uuid, game_id);
 
 -- The admin word-repeat check looks words up directly.
 -- (Keep this last: wrangler warns about a "leftover buffer" if the file ends

@@ -695,7 +695,12 @@ function showStatsModal() {
     const overlay = document.getElementById('modal-overlay');
     
     animateBouncyWord('stats-word-container', targetWord);
-    
+
+    // Explain an empty/incomplete leaderboard before the player has to guess at
+    // it. syncResults() also calls this, so an in-flight sync that succeeds
+    // clears the banner while the modal is open.
+    renderSyncWarning();
+
     // Stat graph update
     const allBarsContainer = document.getElementById('all-bars-container');
     const statsTextEl = document.getElementById('stats-text');
@@ -1193,6 +1198,83 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Sync health
+//
+// A failed POST /api/results is invisible to everyone. The queue sits in
+// localStorage and retries quietly, so the player sees a leaderboard that is
+// simply missing them, and we see nothing at all. On 2026-07-25 a dropped index
+// made every write 500 for ~26 hours; the only signal that reached us was
+// players saying "the leaderboard is broken". Count consecutive failures and
+// put the reason on screen, where the absence is already being noticed.
+const SYNC_FAILURE_WARN_THRESHOLD = 3;
+
+function getSyncFailureState() {
+    return {
+        count: parseInt(safeStorage.getItem('6lets_syncFailCount'), 10) || 0,
+        since: safeStorage.getItem('6lets_syncFailSince') || null,
+        // A 4xx discards the queue outright — those results are gone, not
+        // merely delayed, so it warrants a different message.
+        rejected: safeStorage.getItem('6lets_syncRejected') === 'true'
+    };
+}
+
+function clearSyncFailure() {
+    safeStorage.removeItem('6lets_syncFailCount');
+    safeStorage.removeItem('6lets_syncFailSince');
+    safeStorage.removeItem('6lets_syncRejected');
+}
+
+function recordSyncFailure(rejected = false) {
+    const { count, since } = getSyncFailureState();
+    safeStorage.setItem('6lets_syncFailCount', String(count + 1));
+    // Keep the first failure's timestamp so we can say how long it has been.
+    if (!since) safeStorage.setItem('6lets_syncFailSince', new Date().toISOString());
+    if (rejected) safeStorage.setItem('6lets_syncRejected', 'true');
+}
+
+// Null when there is nothing worth saying. Below the threshold we stay quiet:
+// one failed sync is usually a flaky connection, not an outage.
+function getSyncWarning() {
+    const { count, since, rejected } = getSyncFailureState();
+
+    // A rejection is permanent loss, not a transient outage, so it is worth
+    // saying the first time rather than waiting for the threshold.
+    if (rejected) {
+        return 'Your recent scores could not be saved and will not appear on the leaderboard.';
+    }
+
+    if (count < SYNC_FAILURE_WARN_THRESHOLD) return null;
+
+    let elapsed = '';
+    if (since) {
+        const ms = Date.now() - new Date(since).getTime();
+        const hours = Math.floor(ms / 3600000);
+        if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            elapsed = ` for ${days} day${days === 1 ? '' : 's'}`;
+        } else if (hours >= 1) {
+            elapsed = ` for ${hours} hour${hours === 1 ? '' : 's'}`;
+        }
+    }
+
+    return `Scores haven't reached the server${elapsed}. Your games are saved on this device and will appear on the leaderboard once it's back.`;
+}
+
+function renderSyncWarning() {
+    const el = document.getElementById('sync-warning');
+    if (!el) return;
+
+    const message = getSyncWarning();
+    if (!message) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        return;
+    }
+
+    el.textContent = message;
+    el.classList.remove('hidden');
+}
+
 // Sync logic
 // Returns true when the local queue is known to be flushed to the server
 // (either it was empty, or the POST succeeded), false otherwise.
@@ -1207,7 +1289,14 @@ async function syncResults() {
         safeStorage.setItem('pending_sync', '[]');
         return true;
     }
-    if (pending.length === 0) return true;
+    if (pending.length === 0) {
+        // Nothing outstanding, so any recorded failure is resolved. This is
+        // also what retires the 4xx banner: a rejection empties the queue, so
+        // the warning shows on the post-game modal and is cleared on the next
+        // load rather than sticking to the modal forever.
+        clearSyncFailure();
+        return true;
+    }
 
     try {
         // The server only reads `pending`; aggregate stats are recomputed
@@ -1223,6 +1312,8 @@ async function syncResults() {
             // the request, so a 2xx means "everything processable was
             // processed" — safe to clear.
             safeStorage.setItem('pending_sync', '[]');
+            clearSyncFailure();
+            renderSyncWarning();
             return true;
         }
 
@@ -1231,10 +1322,20 @@ async function syncResults() {
         if (response.status >= 400 && response.status < 500) {
             console.warn('Server rejected pending results; discarding queue.');
             safeStorage.setItem('pending_sync', '[]');
+            recordSyncFailure(true);
+        } else {
+            recordSyncFailure();
         }
+        renderSyncWarning();
         return false;
     } catch (e) {
         console.error('Failed to sync', e);
+        // Don't count a request that failed because the device dropped offline
+        // mid-flight — that is not a server problem and resolves itself.
+        if (navigator.onLine) {
+            recordSyncFailure();
+            renderSyncWarning();
+        }
     }
     return false;
 }

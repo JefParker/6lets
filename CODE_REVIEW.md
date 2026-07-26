@@ -91,9 +91,68 @@ Found and fixed during verification (not in the original review): a guess is rec
 - Secrets `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` / `SECRET_KEY` pushed to Pages; `.dev.vars` written for local dev.
 - `schema.sql` applied to production. `puppeteer` removed and the lockfile regenerated. `wrangler` upgraded to 4.114.0, clearing three high-severity advisories in its `sharp` dependency.
 - **Preview and production D1 split.** `sixlets-db-preview` (`5da8b71d…`) created, seeded from `seed.sql`, and wired to `preview_database_id`. Preview deploys no longer read or write live player data.
-- **Redundant indexes dropped** on both databases. `UNIQUE(user_uuid, game_id)` already covers `WHERE user_uuid = ?` by leftmost prefix, so `idx_results_user_uuid` (added by this review — my error) and `idx_results_user_game` (pre-existing) were pure write overhead. `idx_results_game_id` and `idx_dailywords_word` remain.
+- ~~**Redundant indexes dropped** on both databases.~~ **Reverted 2026-07-26 — this was wrong and took the leaderboard down.** See "Incident" below. `idx_results_user_game` is required and is now declared in `schema.sql`.
 - `console.error` added to every API catch block, so the real exception reaches the server log while the client still gets a generic message.
 - **Verified locally.** Every route returned 200: `/api/words`, `/api/user` GET+POST, `/api/results`, `/api/game_stats`, `/api/dashboard/{login,logout,words,leaderboard}`. A single-half admin save fired exactly one POST, confirming the changed-halves-only fix.
+
+## Incident — 2026-07-25/26, no results recorded for ~26 hours
+
+**Symptom.** Players completed games and shared scores, but both leaderboards
+(post-game "Top Players" and the admin AM/PM cards) showed nothing, and
+`/api/game_stats` reported zero players.
+
+**Cause.** `tools/drop-redundant-indexes.sh` dropped `idx_results_user_game`
+from production, on the stated grounds that `UNIQUE(user_uuid, game_id)` in
+`schema.sql` made it a duplicate. Production never had that constraint:
+`schema.sql` creates `Results` with `CREATE TABLE IF NOT EXISTS`, which is a
+no-op against the pre-existing production table, so the constraint only ever
+reached databases this file created. `PRAGMA index_list('Results')` returned no
+row with `origin='u'` — confirming the table had no such constraint.
+
+That index was the only uniqueness on `(user_uuid, game_id)`, and therefore the
+only valid conflict target for the `ON CONFLICT(user_uuid, game_id) DO UPDATE`
+upsert in `functions/api/results.js`. Once dropped, every insert threw
+`ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`, was
+caught, and returned 500.
+
+**Why it was silent.** `syncResults()` treats 5xx as retry-later: it keeps the
+queue and shows the player nothing. So results accumulated in each browser's
+`pending_sync` while the server recorded none. Nothing was lost — the queue is
+deduplicated on `(user_uuid, game_id)` and capped at 50 entries (~25 days), and
+`syncResults()` runs on load and on `online`, so backlogs flushed as players
+reopened the game.
+
+**Timeline.** Last good write `2026-07-25 21:50:57Z` (14:50 PT), roughly 16
+minutes after `wrangler.toml.bak.20260725143412`. Diagnosed and fixed
+`2026-07-26` by recreating the index; first new write `2026-07-26 16:17:41Z`.
+
+**Fixes applied.**
+
+- `CREATE UNIQUE INDEX IF NOT EXISTS idx_results_user_game ON Results(user_uuid, game_id)`
+  run against production, and now declared in `schema.sql` so fresh databases
+  and production converge. It succeeded cleanly, confirming no duplicate rows
+  were written during the window.
+- `tools/drop-redundant-indexes.sh` and `sql/drop-redundant-indexes.sql`
+  retracted — both are now no-ops that explain why and exit non-zero.
+
+**Lesson.** `CREATE TABLE IF NOT EXISTS` can never alter an existing table, so
+"schema.sql applied to production" says nothing about production's constraints.
+Verify against the live database (`PRAGMA index_list`, `sqlite_master`) before
+reasoning from the schema file — the two had silently diverged for months. A
+migrations directory, or a verify step that diffs live `sqlite_master` against
+the intended schema, would have caught this.
+
+**Detection, added 2026-07-26.** `syncResults()` now counts consecutive
+failures. After `SYNC_FAILURE_WARN_THRESHOLD` (3) the stats modal shows a banner
+above the leaderboard explaining that scores haven't reached the server and are
+safe on the device — placed where the player is already noticing they're
+missing. A 4xx is different: the queue is discarded, so those results are gone
+rather than delayed, and that warns on the first occurrence. A successful sync,
+or an empty queue on the next load, clears the state. Assets bumped to `v42`.
+
+This is a detection mechanism, not a fix. It converts "the leaderboard is
+broken" into a report that says which half of the system failed — which is the
+part that cost the 26 hours.
 
 ## Still open (cosmetic, your call)
 

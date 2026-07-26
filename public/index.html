@@ -30,7 +30,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="img/6lets192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="img/6lets512.png">
 
-    <link rel="stylesheet" href="style.css?v=37">
+    <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
     <div id="game-container">
@@ -96,6 +96,10 @@
             </div>
         </div>
         <div class="stats-text" id="stats-text"></div>
+        <!-- Shown only after repeated failed syncs. A failed POST /api/results
+             is otherwise invisible: the queue retries in the background and the
+             player just sees an empty leaderboard. -->
+        <div id="sync-warning" class="sync-warning hidden" role="status"></div>
         <div id="stats-leaderboard-container" style="width: 100%; margin-top: 20px; display: none;">
             <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;">Top Players</div>
             <div id="stats-leaderboard" style="font-size: 0.9rem; text-align: left; max-height: 150px; overflow-y: auto;">
@@ -348,6 +352,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=41"></script>
+    <script src="script.js?v=42"></script>
 </body>
 </html>

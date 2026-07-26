@@ -1,18 +1,39 @@
--- Drop indexes made redundant by UNIQUE(user_uuid, game_id) on Results.
+-- RETRACTED 2026-07-26. This file is intentionally a no-op. Do not restore it
+-- from git history without reading the whole of this comment.
 --
--- That constraint creates an implicit index on (user_uuid, game_id). SQLite's
--- leftmost-prefix rule means it already serves `WHERE user_uuid = ?`, which is
--- the only shape /api/user queries. So both of these are pure write overhead:
+-- What it used to do:
 --
---   idx_results_user_uuid  - added by the review pass; my error
---   idx_results_user_game  - pre-existing, a straight duplicate of the
---                            constraint's own index
+--   DROP INDEX IF EXISTS idx_results_user_uuid;
+--   DROP INDEX IF EXISTS idx_results_user_game;
 --
--- Dropping an index never touches row data, and both are reversible with a
--- single CREATE INDEX if a query plan ever needs them back.
+-- The reasoning was that UNIQUE(user_uuid, game_id) in schema.sql already
+-- indexes that pair, making idx_results_user_game a straight duplicate.
 --
--- Kept: idx_results_game_id (game_id is not a prefix of anything) and
--- idx_dailywords_word (the admin repeat check).
+-- That reasoning was wrong about production. schema.sql creates Results with
+-- CREATE TABLE IF NOT EXISTS, which does nothing to a table that already
+-- exists — so the UNIQUE constraint never reached the production database.
+-- idx_results_user_game was not a duplicate of it; it WAS the only uniqueness
+-- on (user_uuid, game_id), and therefore the only valid conflict target for
+-- the ON CONFLICT(user_uuid, game_id) upsert in functions/api/results.js.
+--
+-- Consequence of running this against production on 2026-07-25: every
+-- POST /api/results threw "ON CONFLICT clause does not match any PRIMARY KEY
+-- or UNIQUE constraint", returned 500, and recorded nothing. The client treats
+-- 500 as retry-later, so it failed silently — players kept playing and the
+-- leaderboard sat empty for ~26 hours. Last good write 2026-07-25 21:50:57Z;
+-- fixed 2026-07-26 by recreating the index.
+--
+-- The index is now declared in schema.sql as CREATE UNIQUE INDEX IF NOT EXISTS,
+-- so fresh databases and production finally agree.
+--
+-- If you ever do want to drop an index on a live database, check what actually
+-- constrains the table first:
+--
+--   npx wrangler d1 execute sixlets-db --remote \
+--     --command "PRAGMA index_list('Results');"
+--
+-- A row with origin='u' is a table constraint. origin='c' is a created index —
+-- if it is the only unique coverage of an upsert's conflict target, dropping it
+-- breaks every write to that table.
 
-DROP INDEX IF EXISTS idx_results_user_uuid;
-DROP INDEX IF EXISTS idx_results_user_game;
+SELECT 'drop-redundant-indexes.sql is retracted; see the comment in this file' AS notice;

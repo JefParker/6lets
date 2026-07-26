@@ -662,6 +662,28 @@ header {
     font-size: 1.2rem;
 }
 
+/* Shown in the stats modal only after SYNC_FAILURE_WARN_THRESHOLD consecutive
+   failed result syncs. Deliberately quiet — it explains a missing leaderboard
+   entry, it is not an error the player can act on. */
+.sync-warning {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 15px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    border-left: 3px solid var(--key-eval-present, #ffc700);
+    /* Neutral translucent grey rather than a themed variable: this sits on
+       --modal-bg, which ranges from #ffffff to #111111 across the themes. */
+    background: rgba(128, 128, 128, 0.15);
+    color: inherit;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    text-align: left;
+}
+.sync-warning.hidden {
+    display: none;
+}
+
 /* Dashboard Calendar */
 .flip-card {
     background-color: transparent;
