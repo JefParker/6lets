@@ -5,3 +5,10 @@ node_modules/
 .dev.vars
 *.sqlite
 wrangler.toml.bak.*
+
+# The answer key. This repo is public: a committed word schedule spoils every
+# future puzzle, and git history keeps it readable forever. Generate these
+# locally with tools/regenerate-words.py and never commit them.
+seed.sql
+seed.local.sql
+*.local.sql

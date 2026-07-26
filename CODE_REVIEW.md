@@ -154,6 +154,51 @@ This is a detection mechanism, not a fix. It converts "the leaderboard is
 broken" into a report that says which half of the system failed — which is the
 part that cost the 26 hours.
 
+## Incident — 2026-07-26, the public repo published the answer key
+
+`github.com/JefParker/6lets` is a public repository, and two committed files
+gave away the puzzle schedule:
+
+- **`seed.sql`** — 120 dated answers in plaintext, `2026-07-08-AM` through
+  `2026-09-05-PM`.
+- **`seed_words.py`** — the generator. Its `themes` dict names the exact answer
+  for thirteen dates (`2026-08-08 → FELINE/KITTEN`, `2026-09-05 →
+  DONATE/GIVING`, and so on), and its `common_words` list is the entire ~200-word
+  pool the generic days draw from.
+
+This defeated `/api/words` entirely. That endpoint base64-obfuscates words and
+serves only a four-entry look-ahead specifically so nobody can read forward —
+all of which is moot when the whole schedule is a `git clone` away.
+
+**Deleting the files does not fix it.** The blobs stay readable in history, and
+a public repo has no recall. The words themselves had to change.
+
+**Fixed.**
+
+- `tools/regenerate-words.py` draws replacements from `public/dictionary.js`
+  (guaranteeing every answer is typeable — a word outside that list would be
+  unsolvable), excludes everything already published in `seed.sql` and
+  `seed_words.py`, and picks with `secrets.SystemRandom` so the schedule cannot
+  be reproduced from a seed even by someone holding the script. It emits
+  upserts for future dates only, never a `DELETE`.
+- `.gitignore` now covers `seed.sql`, `seed.local.sql`, and `*.local.sql`.
+- All puzzles from 2026-07-27 onward regenerated and applied to production.
+
+**Never run the old `seed.sql` against production.** It opens with
+`DELETE FROM DailyWords;`, and `Results` carries a foreign key to
+`DailyWords(id)` — it would orphan or destroy real player history. It is safe
+only against a database whose name contains "preview", which is the guard
+`tools/split-preview-db.sh` enforces.
+
+**The repo is staying public**, so the standing rule is: the word list lives on
+Jake's machine and in D1, never in git. Day-to-day scheduling goes through the
+admin dashboard; bulk scheduling goes through `regenerate-words.py`.
+
+**Also exposed:** `tools/setup-and-verify.sh` hardcoded `DASHBOARD_PASSWORD`
+for several commits before 2026-07-26. It now reads credentials from the
+environment, but the old value is in history and on a public repo — it must be
+rotated, not merely removed.
+
 ## Still open (cosmetic, your call)
 
 1. **Missing art.** I removed the manifest entries for `6lets-maskable-512.png` and `6Lets-Desktop-SS.png` rather than inventing them. Add the files if you want a maskable icon and a wide install-prompt screenshot. `apple-touch-icon` currently points at `6lets192.png`; a dedicated 180×180 would be better.

@@ -1,79 +1,57 @@
-import datetime
+#!/usr/bin/env python3
+"""
+6Lets -- RETRACTED 2026-07-26. This script no longer does anything.
 
-common_words = [
-    "SUMMER", "WINTER", "SPRING", "AUTUMN", "CIRCLE", "SQUARE", "BOTTLE", "SYSTEM", "PUBLIC", "NUMBER",
-    "PLANET", "OFFICE", "PERSON", "PEOPLE", "FAMILY", "COURSE", "MARKET", "POLICE", "NATION", "HEALTH",
-    "SCHOOL", "CENTER", "RESULT", "REPORT", "DESIGN", "METHOD", "REGION", "AGENCY", "AMOUNT", "SERIES",
-    "GROWTH", "THEORY", "ENERGY", "RECORD", "GROUND", "OBJECT", "LETTER", "WINDOW", "CHANCE", "DEGREE",
-    "MOTHER", "FATHER", "SISTER", "FRIEND", "CHURCH", "STREET", "ANIMAL", "MATTER", "PERIOD", "GARDEN",
-    "MASTER", "EFFECT", "REASON", "SEASON", "NATURE", "ACTION", "BEAUTY", "BEYOND", "CHOOSE", "CORNER",
-    "DAMAGE", "DOCTOR", "EXPERT", "FUTURE", "IMPACT", "ISLAND", "LEADER", "MEMBER", "MEMORY", "MOMENT",
-    "OPTION", "PARENT", "PLAYER", "POLICY", "PROFIT", "REVIEW", "SOURCE", "SPEECH", "STRIKE", "TARGET",
-    "TICKET", "UPDATE", "VOLUME", "WEALTH", "WEIGHT", "WRITER", "YELLOW", "BRIDGE", "CANCER", "CLIENT",
-    "CREDIT", "DETAIL", "EFFORT", "ESTATE", "FARMER", "FLIGHT", "INCOME", "LAWYER", "LENGTH", "LISTEN",
-    "MANAGE", "NATIVE", "NOTICE", "PALACE", "PEPPER", "PHRASE", "POCKET", "PRIEST", "RESCUE", "SCREEN",
-    "SILVER", "SMOOTH", "SPIRIT", "TALENT", "THANKS", "THRUST", "TISSUE", "UNIQUE", "VALLEY", "WONDER",
-    "AUTHOR", "BORDER", "BRANCH", "BREATH", "BURDEN", "CAMERA", "CAMPUS", "CARBON", "CASTLE",
-    "CHERRY", "CHEESE", "CLOSET", "COFFEE", "COLORS", "COOKIE", "COTTON", "COUSIN",
-    "CUSTOM", "DANGER", "DEALER", "DEBATE", "DEMAND", "DEPUTY", "DEVICE",
-    "DINNER", "DIRECT", "DIVIDE", "DOUBLE", "DRAWER", "DRIVER", "EDITOR", "ENGINE", "ESCAPE",
-    "EXCUSE", "EXTENT", "FACTOR", "FAILED", "FELLOW", "FINGER", "FINISH", "FLOWER", "FOREST", "FORGET",
-    "FORMAT", "FORMER", "FOURTH", "FRENCH", "FRIDAY", "GARAGE", "GATHER", "GENDER", "GLOBAL", "GOLDEN",
-    "GUILTY", "HAPPEN", "HEAVEN", "HEIGHT", "HIDDEN", "HOLDER", "HONEST", "HUNTER", "IGNORE",
-    "INJURY", "INSIDE", "INTENT", "INVITE", "ITSELF", "JACKET", "JERSEY", "JUNGLE", "JUNIOR", "KEEPER",
-    "KILLER", "LADIES", "LATEST", "LAYERS", "LEAGUE", "LEGACY", "LESSON", "LITTLE", "LIVING"
-]
+Superseded by tools/regenerate-words.py.
 
-themes = {
-    "2026-07-09": ["SUGARS", "COOKIE"], # National Sugar Cookie Day
-    "2026-07-11": ["PEOPLE", "CROWDS"], # World Population Day
-    "2026-07-13": ["FRENCH", "POTATO"], # National French Fry Day
-    "2026-07-14": ["FRANCE", "NATION"], # Bastille Day
-    "2026-07-17": ["SMILEY", "SYMBOL"], # World Emoji Day
-    "2026-07-20": ["APOLLO", "ROCKET"], # Moon Landing Anniversary
-    "2026-07-30": ["FRIEND", "AMIGOS"], # International Day of Friendship
-    "2026-08-08": ["FELINE", "KITTEN"], # International Cat Day
-    "2026-08-09": ["NOVELS", "AUTHOR"], # Book Lovers Day
-    "2026-08-12": ["YOUTHS", "MINORS"], # International Youth Day
-    "2026-08-19": ["CAMERA", "PHOTOS"], # World Photography Day
-    "2026-08-26": ["CANINE", "PUPPER"], # National Dog Day
-    "2026-09-05": ["DONATE", "GIVING"], # International Day of Charity
-}
+WHAT IT USED TO DO
+------------------
+It generated seed.sql: 60 days of puzzles from 2026-07-08, drawing from a
+hardcoded ~200-word `common_words` list, with a `themes` dict pinning specific
+answers to specific dates (National Sugar Cookie Day, Bastille Day, and so on).
 
-# Collect all themed words to ensure no duplicates in generic
-themed_words = set()
-for t_words in themes.values():
-    themed_words.update(t_words)
+WHY IT WAS RETIRED
+------------------
+This repository is public. The script therefore published, in plaintext:
 
-# Ensure unique, exactly 6 letters, and not in themed_words
-generic = list(set([w for w in common_words if len(w) == 6 and w not in themed_words]))
+  * the exact answer for thirteen dated puzzles, straight out of `themes`
+    (2026-08-08 -> FELINE/KITTEN, 2026-09-05 -> DONATE/GIVING, ...)
+  * the complete candidate pool every other day was drawn from, which narrowed
+    any remaining puzzle to a couple of hundred guesses
 
-if len(generic) < 100:
-    print(f"Warning: Only {len(generic)} generic words available. May wrap around and repeat.")
+And its output, seed.sql, was committed too -- so all 120 answers through
+2026-09-05 were readable directly. That defeated the point of /api/words, which
+base64-obfuscates words and serves only a four-entry look-ahead precisely so
+nobody can read forward.
 
-sql_lines = []
-sql_lines.append("DELETE FROM DailyWords;")
+Deleting these files would not have fixed it: the blobs stay in git history and
+a public repo has no recall. Every affected puzzle was regenerated on
+2026-07-26 and the schedule now lives only on Jake's machine and in D1.
 
-curr_date = datetime.date(2026, 7, 8)
-gen_idx = 0
+THE RULE NOW
+------------
+The answer key is never committed. seed.sql, seed.local.sql, and *.local.sql
+are gitignored. Bulk scheduling goes through:
 
-for i in range(60):
-    date_str = curr_date.strftime("%Y-%m-%d")
-    if date_str in themes:
-        am_word = themes[date_str][0]
-        pm_word = themes[date_str][1]
-    else:
-        if gen_idx >= len(generic):
-            print(f"Ran out of generic words at {date_str}. Wrapping around.")
-        am_word = generic[gen_idx % len(generic)]
-        gen_idx += 1
-        pm_word = generic[gen_idx % len(generic)]
-        gen_idx += 1
-        
-    sql_lines.append(f"INSERT INTO DailyWords (id, word) VALUES ('{date_str}-AM', '{am_word}');")
-    sql_lines.append(f"INSERT INTO DailyWords (id, word) VALUES ('{date_str}-PM', '{pm_word}');")
-    
-    curr_date += datetime.timedelta(days=1)
+    python3 tools/regenerate-words.py --start YYYY-MM-DD --days 120
 
-with open('seed.sql', 'w') as f:
-    f.write("\n".join(sql_lines))
+Day-to-day edits go through the admin dashboard.
+
+Note the distinction this file got wrong, and which regenerate-words.py keeps:
+public/dictionary.js is the list of guesses the game ACCEPTS (~30,000 words,
+necessarily broad, safe to publish). Answers must come from a much narrower
+pool of common words -- and must also appear in dictionary.js, or the client
+would reject the answer as an invalid guess and the puzzle would be unsolvable.
+"""
+
+import sys
+
+sys.exit(
+    "seed_words.py is retracted and does nothing.\n"
+    "\n"
+    "  It published the puzzle answer key to a public repository.\n"
+    "  See the docstring in this file.\n"
+    "\n"
+    "  Use instead:\n"
+    "    python3 tools/regenerate-words.py --start YYYY-MM-DD --days 120\n"
+)
