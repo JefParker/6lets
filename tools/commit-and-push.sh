@@ -45,9 +45,21 @@ ok "branch: $BRANCH"
 git remote get-url "$REMOTE" >/dev/null 2>&1 || die "no remote named '$REMOTE'"
 ok "remote: $(git remote get-url "$REMOTE")"
 
+# A clean working tree is not the same as "nothing to do" — an earlier run may
+# have committed and then had its push declined.
 if [ -z "$(git status --porcelain)" ]; then
-  ok "working tree is clean — nothing to commit"
-  exit 0
+  UNPUSHED=0
+  if git rev-parse --verify --quiet "$REMOTE/$BRANCH" >/dev/null; then
+    UNPUSHED=$(git rev-list --count "$REMOTE/$BRANCH..$BRANCH" 2>/dev/null || echo 0)
+  fi
+
+  if [ "$UNPUSHED" = "0" ]; then
+    ok "working tree clean, nothing unpushed — already up to date"
+    exit 0
+  fi
+
+  warn "working tree is clean, but $UNPUSHED commit(s) have not been pushed"
+  warn "skipping the commit steps and going straight to the push"
 fi
 
 # ============================================================ 1. JS SYNTAX ==
@@ -106,7 +118,13 @@ if git diff --cached --name-only | grep -q '^wrangler\.toml\.bak\.'; then
 fi
 ok "no wrangler.toml backups staged"
 
-# =============================================================== 4. REVIEW ==
+# ========================================================= 4/5. COMMIT ======
+if git diff --cached --quiet; then
+
+warn "nothing new staged — keeping the existing commit(s)"
+
+else
+
 hdr "4. What will be committed"
 
 git diff --cached --stat
@@ -115,7 +133,6 @@ git diff --cached --name-status
 
 confirm "Commit these changes?"
 
-# =============================================================== 5. COMMIT ==
 hdr "5. Commit"
 
 if [ "$#" -ge 1 ] && [ -n "$1" ]; then
@@ -150,6 +167,8 @@ kept playing while both leaderboards sat empty for ~26 hours.
 MSG
 fi
 ok "committed"
+
+fi  # end of the 4/5 commit block
 
 # ================================================================= 6. PUSH ==
 hdr "6. Push"
