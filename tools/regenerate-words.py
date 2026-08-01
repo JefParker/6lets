@@ -29,7 +29,10 @@ word rather than shipping a broken puzzle.
 WHAT IT GUARANTEES
 ------------------
   * every answer is common enough to guess, and accepted by the client
-  * nothing already published in seed.sql or seed_words.py is reused
+  * nothing the public git history ever revealed is reused -- the committed
+    tools/burned-words.txt snapshot enforces this even on a fresh clone
+  * nothing from the previous run's output file is reused, so consecutive
+    runs over different date ranges never schedule the same word twice
   * secrets.SystemRandom, so the schedule is not reproducible from a seed even
     by someone holding this script
   * upserts for future dates only, never a DELETE
@@ -60,10 +63,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DICTIONARY = os.path.join(ROOT, 'public', 'dictionary.js')
 
 # Sources of already-published answers. Anything here is burned.
+#
+# burned-words.txt is the committed snapshot of everything the public git
+# history ever revealed, so it works on a fresh clone. seed.sql and
+# seed_words.py are the original (retracted, gitignored) files -- still read
+# when present, but their content is folded into burned-words.txt, so their
+# absence is not a hole.
+BURNED_REQUIRED = os.path.join(ROOT, 'tools', 'burned-words.txt')
 BURNED_SOURCES = [
+    BURNED_REQUIRED,
     os.path.join(ROOT, 'seed.sql'),
     os.path.join(ROOT, 'seed_words.py'),
 ]
+
+# Every version of the old files combined published at least this many distinct
+# words; parsing fewer means a burned source is truncated or mis-parsed.
+BURNED_MINIMUM = 200
 
 # Ordinary, guessable six-letter words. Add to this freely -- entries that are
 # not exactly six letters, or not present in dictionary.js, are dropped with a
@@ -294,14 +309,75 @@ def read_dictionary():
 
 def read_burned(extra_files):
     """Words already published anywhere, so they can be excluded."""
+    if not os.path.isfile(BURNED_REQUIRED):
+        sys.exit(
+            'missing %s -- refusing to continue.\n'
+            'That file is the committed record of every answer the public git '
+            'history gave away; without it this run would reuse spoiled words.'
+            % BURNED_REQUIRED
+        )
+
     burned = set()
     for path in BURNED_SOURCES + list(extra_files):
-        if not path or not os.path.isfile(path):
+        if not path:
+            continue
+        if not os.path.isfile(path):
+            # Explicit --exclude-file arguments must exist; the optional
+            # retracted local files may legitimately be absent.
+            if path in extra_files:
+                sys.exit('--exclude-file %s does not exist' % path)
+            print('  note: burned source %s not present (its words are in %s)'
+                  % (os.path.relpath(path, ROOT),
+                     os.path.relpath(BURNED_REQUIRED, ROOT)),
+                  file=sys.stderr)
             continue
         with open(path, 'r', encoding='utf-8') as fh:
             text = fh.read()
         burned.update(re.findall(r"\b([A-Z]{6})\b", text))
+
+    if len(burned) < BURNED_MINIMUM:
+        sys.exit(
+            'only %d burned words parsed (expected at least %d) -- a burned '
+            'source is truncated or mis-parsed. Refusing to continue.'
+            % (len(burned), BURNED_MINIMUM)
+        )
     return burned
+
+
+def read_scheduled(out_path):
+    """Words in a previous run's output, so consecutive runs never repeat.
+
+    The authoritative schedule lives in D1, but the last generated file is the
+    best local record of it. Words in it are not public -- they are excluded to
+    avoid duplicate answers, not because they are burned.
+    """
+    if not os.path.isfile(out_path):
+        return set()
+    with open(out_path, 'r', encoding='utf-8') as fh:
+        return set(re.findall(r"\b([A-Z]{6})\b", fh.read()))
+
+
+def backup_path_for(out_path):
+    # Keep the backup name ending in .local.sql so the existing gitignore
+    # pattern (*.local.sql) covers it too.
+    suffix = '.local.sql'
+    if out_path.endswith(suffix):
+        return out_path[:-len(suffix)] + '.prev' + suffix
+    return out_path + '.prev' + suffix
+
+
+def game_today():
+    """Today in the puzzle's timezone (lib/puzzle.js pins America/Los_Angeles),
+    not the machine's -- run from another timezone near midnight, the two
+    differ and the guard below would allow rewriting a puzzle already in play."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo('America/Los_Angeles')).date()
+    except Exception:
+        print('  warning: zoneinfo unavailable; using the local date. If this '
+              'machine is not on US Pacific time, the "today or earlier" guard '
+              'may be off by one day.', file=sys.stderr)
+        return datetime.date.today()
 
 
 def game_ids(start, days):
@@ -332,7 +408,7 @@ def main():
     except ValueError:
         sys.exit('--start must look like 2026-07-27')
 
-    today = datetime.date.today()
+    today = game_today()
     if start <= today:
         sys.exit(
             'refusing to regenerate %s: it is today or earlier.\n'
@@ -343,6 +419,7 @@ def main():
 
     dictionary = read_dictionary()
     burned = read_burned(args.exclude_file)
+    scheduled = read_scheduled(args.out)
 
     raw = COMMON_WORDS.split()
     wrong_length = [w for w in raw if len(w) != 6]
@@ -351,7 +428,7 @@ def main():
     # An answer the client would reject as an invalid guess is unsolvable.
     not_in_dictionary = sorted(common - dictionary)
     usable = common & dictionary
-    pool = sorted(usable - burned)
+    pool = sorted(usable - burned - scheduled)
 
     ids = list(game_ids(start, args.days))
 
@@ -383,6 +460,13 @@ def main():
             "ON CONFLICT(id) DO UPDATE SET word = excluded.word;" % (game_id, word)
         )
 
+    backup = None
+    if os.path.isfile(args.out):
+        # The outgoing file may be the only local copy of the current answer
+        # key (D1 has the rest). Keep one generation back instead of clobbering.
+        backup = backup_path_for(args.out)
+        os.replace(args.out, backup)
+
     with open(args.out, 'w', encoding='utf-8') as fh:
         fh.write('\n'.join(lines) + '\n')
 
@@ -394,6 +478,10 @@ def main():
         print('    dropped, not in dict.js  : %d (%s)'
               % (len(not_in_dictionary), ', '.join(not_in_dictionary[:6])))
     print('  excluded as already public : %d' % len(usable & burned))
+    if scheduled:
+        print('  excluded, in previous run  : %d (from %s)'
+              % (len((usable - burned) & scheduled),
+                 os.path.relpath(args.out, ROOT)))
     print('  pool after exclusions      : %d' % len(pool))
     print('  puzzles written            : %d' % len(ids))
     print('  range                      : %s .. %s' % (ids[0], ids[-1]))
@@ -401,6 +489,8 @@ def main():
     print('  sample: %s' % ', '.join(chosen[:8]))
     print('')
     print('  wrote %s' % args.out)
+    if backup:
+        print('  previous schedule kept as %s' % os.path.relpath(backup, ROOT))
     print('')
     print('  Review it, then apply:')
     print('    npx wrangler d1 execute sixlets-db --remote --file=./%s --yes'

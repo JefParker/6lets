@@ -35,14 +35,18 @@ the cached copy.
 """
 
 import json
+import urllib.error
 import urllib.request
 
 URL = "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
 OUT = 'public/dictionary.js'
 
 print("Downloading words...")
-response = urllib.request.urlopen(URL)
-data = response.read().decode('utf-8').splitlines()
+try:
+    with urllib.request.urlopen(URL, timeout=60) as response:
+        data = response.read().decode('utf-8').splitlines()
+except (urllib.error.URLError, OSError) as e:
+    raise SystemExit(f"download failed ({e}). {OUT} left untouched.")
 
 six_letter_words = [word.strip().lower() for word in data if len(word.strip()) == 6]
 
