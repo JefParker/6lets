@@ -618,7 +618,9 @@ header {
     height: 40px;
 }
 .flip-card .stats-text {
-    font-size: 0.95rem !important;
+    /* !important: overrides the element's inline font-size. Longer lines wrap
+       to two; the card back's flex column has the height for it. */
+    font-size: 1.2rem !important;
 }
 .bar-wrapper {
     display: flex;
