@@ -199,6 +199,55 @@ for several commits before 2026-07-26. It now reads credentials from the
 environment, but the old value is in history and on a public repo — it must be
 rotated, not merely removed.
 
+## Feature — 2026-08-04, guess grids on the stats leaderboard
+
+Clicking a row in the post-game "Top Players" list opens a popup showing that
+player's display name, their guesses/time line, and their emoji guess grid.
+
+**The grid is scored on the server, deliberately.** `/api/dashboard/leaderboard`
+now joins `DailyWords` and derives each player's emoji pattern in the worker,
+returning `pattern: ['⬛🟩…', …]` instead of the stored `guesses` blob. Returning
+the raw guesses would have been the obvious implementation and would have
+published the answer: the endpoint has no auth check, every leaderboard row is a
+solved game, and a solved game's last guess *is* the target word. Anyone could
+have read the current answer — and, with the endpoint accepting an arbitrary
+`game_id`, any past one — straight out of a JSON response. The emoji pattern
+carries positions but no letters, so it is safe to serve. Neither `r.guesses`
+nor `d.word` appears in the payload.
+
+This is the same class of leak as the `seed.sql` incident above: the answer
+escaping through a channel nobody thought of as an answer channel. The rule that
+`/api/words` follows — never serve a word the player hasn't earned — has to hold
+for every endpoint, not just the one named after words.
+
+`toEmojiRow()` duplicates the scoring logic in `getShareText()` (`public/script.js`)
+rather than sharing it, because the client copy is inline in a function that also
+formats dates and builds share text. The two must stay in sync; duplicate-letter
+handling in particular (claim exact matches first, then let each remaining target
+letter satisfy at most one present marker) is easy to get subtly wrong.
+
+**Appearance is unchanged by request.** `.leaderboard-row.is-clickable` sets
+`cursor` and nothing else — no colour, no underline. Because there is no visual
+affordance, the rows are given `tabIndex = 0`, `role="button"` and an Enter/Space
+handler, or they would be unreachable without a mouse.
+
+`#player-grid-popup` is a sibling of the modals at `z-index: 200`, above
+`.modal`'s 101, so the stats modal stays visible behind it and closing the popup
+returns the player to the leaderboard. It lives outside `#stats-modal`, so every
+path that hides the modal — the close button, `showStatsModal()`, and
+`checkForNewGame()` — also calls `hidePlayerGrid()`; otherwise it would be left
+floating over the board.
+
+Results saved before `guesses` was stored have a null pattern and show
+"No grid saved for this game." Malformed blobs take the same path rather than
+throwing. Assets and `CACHE_NAME` bumped to `v44`.
+
+The admin dashboard leaderboard was left alone. It ignores the new field.
+
+**Untested by the tooling.** `commit-and-push.sh` runs `node --check` on
+`public/*.js` only, so the change to `functions/api/dashboard/leaderboard.js`
+was not parse-checked before pushing.
+
 ## Still open (cosmetic, your call)
 
 1. **Missing art.** I removed the manifest entries for `6lets-maskable-512.png` and `6Lets-Desktop-SS.png` rather than inventing them. Add the files if you want a maskable icon and a wide install-prompt screenshot. `apple-touch-icon` currently points at `6lets192.png`; a dedicated 180×180 would be better.

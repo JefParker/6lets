@@ -2,8 +2,8 @@
 #
 # 6Lets — review, commit, and push to GitHub.
 #
-#   cd ~/Documents/6Lets && bash tools/commit-and-push.sh
 #   cd ~/Documents/6Lets && bash tools/commit-and-push.sh "your commit message"
+#   cd ~/Documents/6Lets && bash tools/commit-and-push.sh   # prompts for one
 #
 # Nothing is committed until you have seen the file list and typed "yes".
 # Nothing is pushed until you confirm a second time.
@@ -135,36 +135,16 @@ confirm "Commit these changes?"
 
 hdr "5. Commit"
 
+# No canned fallback message. This used to hold the full text of one specific
+# past commit, which every later run silently reused -- a commit message that
+# confidently describes work the commit does not contain is worse than none.
 if [ "$#" -ge 1 ] && [ -n "$1" ]; then
   git commit -m "$1" || die "commit failed"
 else
-  git commit -F - <<'MSG' || die "commit failed"
-Fix silent result-write failure that emptied the leaderboard
-
-POST /api/results upserts with ON CONFLICT(user_uuid, game_id). Production's
-Results table has no UNIQUE constraint on that pair -- schema.sql declares one,
-but inside CREATE TABLE IF NOT EXISTS, which is a no-op against the table that
-already existed. The uniqueness came from idx_results_user_game, which
-drop-redundant-indexes.sh removed on 2026-07-25 as "redundant with the
-constraint".
-
-With no valid conflict target every insert threw, returned 500, and recorded
-nothing. syncResults() treats 5xx as retry-later and says nothing, so players
-kept playing while both leaderboards sat empty for ~26 hours.
-
-- schema.sql: declare idx_results_user_game as CREATE UNIQUE INDEX IF NOT
-  EXISTS, so fresh databases and production converge. (Already recreated on
-  production by hand.)
-- tools/drop-redundant-indexes.sh, sql/drop-redundant-indexes.sql: retracted to
-  no-ops that explain why and exit non-zero.
-- public/script.js, index.html, style.css: count consecutive sync failures and
-  show a banner above the leaderboard after 3, explaining that scores are safe
-  on the device. A 4xx discards the queue, so it warns on first occurrence.
-  Assets bumped to v42.
-- tools/setup-and-verify.sh: read dashboard credentials from the environment
-  instead of hardcoding them; add asserts for the index and the sync warning.
-- CODE_REVIEW.md: correct the retracted entry, add an incident writeup.
-MSG
+  printf '\n%sNo commit message given. Type a one-line summary:%s\n> ' "$BLD" "$RST"
+  read -r msg
+  [ -n "$msg" ] || die "empty commit message -- nothing committed"
+  git commit -m "$msg" || die "commit failed"
 fi
 ok "committed"
 
@@ -187,11 +167,19 @@ confirm "Push to $REMOTE/$BRANCH?"
 git push "$REMOTE" "$BRANCH" || die "push failed"
 ok "pushed"
 
-cat <<'NEXT'
+# Read the version out of sw.js rather than hardcoding it -- a stale number here
+# tells you to look for the wrong cache and makes a failed deploy look fine.
+SW_V=$(grep -oE "6lets-cache-v[0-9]+" public/sw.js | head -n1)
+
+cat <<NEXT
 
 Next:
 
-  - Confirm the deploy picked up the new assets (service worker v42).
+  - Confirm the deploy picked up the new assets (service worker ${SW_V:-unknown};
+    check DevTools -> Application -> Cache Storage).
   - Play one game and check your score lands on the leaderboard.
-  - Delete the local wrangler.toml.bak.* file once you are happy.
 NEXT
+
+if ls wrangler.toml.bak.* >/dev/null 2>&1; then
+  echo "  - Delete the local wrangler.toml.bak.* file once you are happy."
+fi
