@@ -1,7 +1,7 @@
 // Bump on every asset change — `install` only re-fetches ASSETS when this
 // changes, and cacheFirst matches with ignoreSearch, so the `?v=` query strings
 // in index.html do not bust the cache on their own.
-const CACHE_NAME = '6lets-cache-v43';
+const CACHE_NAME = '6lets-cache-v44';
 const ASSETS = [
     '/',
     '/index.html',

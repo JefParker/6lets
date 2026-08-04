@@ -30,7 +30,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="img/6lets192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="img/6lets512.png">
 
-    <link rel="stylesheet" href="style.css?v=43">
+    <link rel="stylesheet" href="style.css?v=44">
 </head>
 <body>
     <div id="game-container">
@@ -107,6 +107,17 @@
             </div>
         </div>
         <div class="next-game-text" style="margin-top: 20px;">New Games 12AM & 12PM PT</div>
+    </div>
+
+    <!-- Sits above the stats modal, which stays open behind it, so dismissing
+         this returns the player to the leaderboard rather than to the board. -->
+    <div id="player-grid-popup" class="hidden" role="dialog" aria-modal="true" aria-labelledby="player-grid-name">
+        <div id="player-grid-card">
+            <button id="close-player-grid-btn" class="close-btn" aria-label="Close">✖</button>
+            <div id="player-grid-name"></div>
+            <div id="player-grid-stats"></div>
+            <div id="player-grid-rows"></div>
+        </div>
     </div>
 
     <div id="history-modal" class="modal hidden">
@@ -352,6 +363,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=42"></script>
+    <script src="script.js?v=44"></script>
 </body>
 </html>

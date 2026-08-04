@@ -693,7 +693,10 @@ function buildGraph(distributionData, container, textElement, highlightGameStatu
 function showStatsModal() {
     const modal = document.getElementById('stats-modal');
     const overlay = document.getElementById('modal-overlay');
-    
+
+    // A stale popup from a previous open would sit on top of the fresh modal.
+    hidePlayerGrid();
+
     animateBouncyWord('stats-word-container', targetWord);
 
     // Explain an empty/incomplete leaderboard before the player has to guess at
@@ -762,18 +765,38 @@ function showStatsModal() {
                         lbList.innerHTML = '';
                         top7.forEach(entry => {
                             const row = document.createElement('div');
-                            row.className = 'leaderboard-row';
-                            
+                            row.className = 'leaderboard-row is-clickable';
+
+                            const name = entry.display_name || 'Anonymous';
+                            const statsLine = `${entry.guesses_taken} guess${entry.guesses_taken > 1 ? 'es' : ''} - ${formatTimeMs(entry.time_taken_ms)}`;
+
                             const nameDiv = document.createElement('div');
                             nameDiv.className = 'leaderboard-name';
-                            nameDiv.textContent = entry.display_name || 'Anonymous';
-                            
+                            nameDiv.textContent = name;
+
                             const statsDiv = document.createElement('div');
                             statsDiv.className = 'leaderboard-stats';
-                            statsDiv.textContent = `${entry.guesses_taken} guess${entry.guesses_taken > 1 ? 'es' : ''} - ${formatTimeMs(entry.time_taken_ms)}`;
-                            
+                            statsDiv.textContent = statsLine;
+
                             row.appendChild(nameDiv);
                             row.appendChild(statsDiv);
+
+                            // Keyboard parity with the pointer affordance: the row
+                            // looks like plain text, so without this it would be
+                            // unreachable for anyone not using a mouse.
+                            row.tabIndex = 0;
+                            row.setAttribute('role', 'button');
+                            row.setAttribute('aria-label', `${name}, ${statsLine}. Show guess grid.`);
+                            row.addEventListener('click', () => {
+                                showPlayerGrid(name, statsLine, entry.pattern);
+                            });
+                            row.addEventListener('keydown', (e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    showPlayerGrid(name, statsLine, entry.pattern);
+                                }
+                            });
+
                             lbList.appendChild(row);
                         });
                     } else {
@@ -790,9 +813,54 @@ function showStatsModal() {
     overlay.classList.remove('hidden');
 }
 
+// Shows one leaderboard player's guess grid on top of the stats modal.
+//
+// `pattern` is the emoji grid the leaderboard API derives server-side. It is
+// null for results saved before guesses were stored (and for any blob that
+// failed validation), so the empty case is normal, not an error.
+function showPlayerGrid(name, statsLine, pattern) {
+    const popup = document.getElementById('player-grid-popup');
+    if (!popup) return;
+
+    document.getElementById('player-grid-name').textContent = name;
+    document.getElementById('player-grid-stats').textContent = statsLine;
+
+    const rowsEl = document.getElementById('player-grid-rows');
+    if (Array.isArray(pattern) && pattern.length > 0) {
+        rowsEl.classList.remove('no-grid');
+        rowsEl.textContent = pattern.join('\n');
+    } else {
+        rowsEl.classList.add('no-grid');
+        rowsEl.textContent = 'No grid saved for this game.';
+    }
+
+    popup.classList.remove('hidden');
+    document.getElementById('close-player-grid-btn').focus();
+}
+
+function hidePlayerGrid() {
+    const popup = document.getElementById('player-grid-popup');
+    if (popup) popup.classList.add('hidden');
+}
+
+document.getElementById('close-player-grid-btn').addEventListener('click', hidePlayerGrid);
+
+// Tapping the dimmed area closes it; clicks inside the card must not bubble out
+// and dismiss the thing the player is trying to read.
+document.getElementById('player-grid-popup').addEventListener('click', (e) => {
+    if (e.target.id === 'player-grid-popup') hidePlayerGrid();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hidePlayerGrid();
+});
+
 // Targeted by id — `document.querySelector('.close-btn')` happened to match the
 // stats modal only because it sits first in the DOM.
 document.getElementById('close-stats-btn').addEventListener('click', () => {
+    // The popup lives outside #stats-modal, so hiding the modal alone would
+    // leave it floating over the board.
+    hidePlayerGrid();
     document.getElementById('stats-modal').classList.add('hidden');
     document.getElementById('modal-overlay').classList.add('hidden');
 });
@@ -2281,6 +2349,7 @@ function checkForNewGame() {
         if (currentActiveGameId !== gameId && !newGamePromptShown) {
             // Don't yank the settings or admin dashboard out from under someone
             // mid-edit — only close the game-flow modals.
+            hidePlayerGrid();
             ['stats-modal', 'history-modal', 'help-modal', 'name-prompt-modal']
                 .forEach(id => document.getElementById(id).classList.add('hidden'));
 

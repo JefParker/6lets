@@ -777,6 +777,76 @@ header {
     color: inherit;
 }
 
+/* Clickable rows deliberately keep the exact appearance of static ones — only
+   the cursor hints that there is something to open. Adding colour or an
+   underline here would change the leaderboard's look, which is not wanted. */
+.leaderboard-row.is-clickable {
+    cursor: pointer;
+}
+
+/* Player grid popup (opened from a leaderboard row) */
+#player-grid-popup {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Above .modal (101) so the stats modal stays visible behind it. */
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#player-grid-popup.hidden {
+    display: none;
+}
+
+#player-grid-card {
+    position: relative;
+    background: var(--modal-bg);
+    color: var(--modal-color);
+    padding: 20px;
+    border-radius: 8px;
+    width: 85%;
+    max-width: 300px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+#player-grid-name {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin: 0 10px 4px;
+    overflow-wrap: anywhere;
+}
+
+#player-grid-stats {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-bottom: 12px;
+}
+
+#player-grid-rows {
+    /* Emoji squares only line up in a monospace-ish flow; letter-spacing keeps
+       the columns from touching on platforms with narrow emoji metrics. */
+    font-size: 1.5rem;
+    line-height: 1.15;
+    letter-spacing: 2px;
+    white-space: pre;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+#player-grid-rows.no-grid {
+    font-size: 0.95rem;
+    line-height: 1.4;
+    letter-spacing: normal;
+    white-space: normal;
+    opacity: 0.8;
+}
+
 .flip-card-third .flip-arrow {
     bottom: auto;
     top: 5px;
