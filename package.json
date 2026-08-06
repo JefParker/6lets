@@ -5,9 +5,16 @@
   "private": true,
   "scripts": {
     "dev": "wrangler pages dev",
+    "//test": "--experimental-sqlite is required on Node 22.x, where node:sqlite exists but is flagged, and is a harmless no-op from 23.4 where it was unflagged. Without it the database-backed tests skip themselves and the suite exits 0 having verified nothing; test/database.test.mjs fails loudly if that happens.",
+    "//test-glob": "The pattern is QUOTED and explicit, not a bare `test/`. Since Node 22.6 the test runner reads positional arguments as glob patterns, so `test/` resolves to one file that does not exist and dies with MODULE_NOT_FOUND before running anything. Quoting stops the shell expanding it first, so Node does the globbing. Naming *.test.mjs also keeps test/helpers/*.mjs out of the run — Node's default discovery treats every file under a test/ directory as a test file, which would load the helpers as empty suites.",
+    "test": "node --test --experimental-sqlite \"test/**/*.test.mjs\"",
     "deploy": "wrangler pages deploy",
     "db:schema": "wrangler d1 execute sixlets-db --file=schema.sql",
-    "db:reset": "wrangler d1 execute sixlets-db --file=reset.sql"
+    "db:reset": "wrangler d1 execute sixlets-db --file=reset.sql",
+    "db:migrate:preview": "wrangler d1 execute sixlets-db --remote --preview --file=migrations/0001_admin_auth_and_sessions.sql",
+    "db:migrate": "wrangler d1 execute sixlets-db --remote --file=migrations/0001_admin_auth_and_sessions.sql",
+    "//deploy:safe": "Migrations before the deploy, chained with && — new code selects columns that do not exist yet, so a deploy that outruns its schema 500s on every affected route while the static pages render perfectly. The reverse order is safe.",
+    "deploy:safe": "npm run db:migrate && wrangler pages deploy"
   },
   "keywords": [],
   "author": "",

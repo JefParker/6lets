@@ -59,6 +59,72 @@ CREATE INDEX IF NOT EXISTS idx_results_game_id ON Results(game_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_results_user_game ON Results(user_uuid, game_id);
 
 -- The admin word-repeat check looks words up directly.
--- (Keep this last: wrangler warns about a "leftover buffer" if the file ends
--- with comment text after the final semicolon.)
 CREATE INDEX IF NOT EXISTS idx_dailywords_word ON DailyWords(word);
+
+-- ===========================================================================
+-- Admin authentication (passkeys + server-side sessions).
+--
+-- Mirrors migrations/0001_admin_auth_and_sessions.sql. That file is what
+-- changes a live database; this one only describes the intended end state so a
+-- database created from scratch converges with one that got there by
+-- migration. Both must be edited together — see migrations/README.md for why
+-- neither alone tells you what production looks like.
+--
+-- The per-column reasoning lives in the migration and is not repeated here.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS AdminUsers (
+    id            TEXT PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE,
+    -- Stays NOT NULL with passkeys in place, on purpose: a passkey-only admin
+    -- holding a dead phone has no second door.
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    disabled_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS AdminCredentials (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    -- UNIQUE globally: excludeCredentials is only a hint, so this is the
+    -- constraint that actually prevents a duplicate enrolment.
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key    TEXT NOT NULL,   -- base64url SPKI, straight from getPublicKey()
+    algorithm     INTEGER NOT NULL, -- COSE alg: -7 ES256, -257 RS256
+    sign_count    INTEGER NOT NULL DEFAULT 0, -- recorded, never enforced
+    nickname      TEXT NOT NULL,
+    transports    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    last_used_at  TEXT,
+    FOREIGN KEY (user_id) REFERENCES AdminUsers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_credentials_user ON AdminCredentials(user_id);
+
+CREATE TABLE IF NOT EXISTS AdminChallenges (
+    challenge   TEXT PRIMARY KEY,
+    -- CHECK-constrained so a registration challenge cannot be redeemed as a
+    -- sign-in.
+    purpose     TEXT NOT NULL CHECK (purpose IN ('registration', 'authentication')),
+    user_id     TEXT,
+    expires_at  TEXT NOT NULL,
+    consumed_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES AdminUsers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_challenges_expires ON AdminChallenges(expires_at);
+
+CREATE TABLE IF NOT EXISTS AdminSessions (
+    id                  TEXT PRIMARY KEY,
+    user_id             TEXT NOT NULL,
+    subject_type        TEXT NOT NULL DEFAULT 'admin',
+    created_at          TEXT NOT NULL,
+    last_seen_at        TEXT NOT NULL,
+    expires_at          TEXT NOT NULL,        -- idle deadline, slides forward
+    absolute_expires_at TEXT,                 -- ceiling, never moves
+    FOREIGN KEY (user_id) REFERENCES AdminUsers(id) ON DELETE CASCADE
+);
+
+-- (Keep a statement last: wrangler warns about a "leftover buffer" if the file
+-- ends with comment text after the final semicolon.)
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_user ON AdminSessions(user_id);

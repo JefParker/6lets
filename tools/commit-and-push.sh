@@ -76,7 +76,39 @@ for f in public/script.js public/sw.js public/dictionary.js; do
     SYNTAX_OK=0
   fi
 done
+
+# lib/ and functions/ are ES modules, so they need --input-type=module: plain
+# `node --check` parses them as CommonJS and reports every `import` as a syntax
+# error. These went unchecked entirely until now, which is how a change to
+# functions/api/dashboard/leaderboard.js reached production without ever being
+# parsed.
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  if err=$(node --check --input-type=module < "$f" 2>&1); then
+    ok "parse  $f"
+  else
+    bad "parse  $f"
+    printf '%s\n' "$err"
+    SYNTAX_OK=0
+  fi
+done < <(find lib functions -name '*.js' -type f 2>/dev/null | sort)
+
 [ "$SYNTAX_OK" = "1" ] || die "fix the syntax errors above before pushing"
+
+# ================================================================ 1b. TESTS ==
+hdr "1b. Tests"
+
+# The passkey ceremony and the sliding-window arithmetic are both things whose
+# failure mode is silence — a signature that never verifies, an expiry that
+# quietly outlives its ceiling. Neither shows up by clicking around.
+#
+# Not piped through tail: the interesting part of a failure is the assertion
+# message, and trimming the output to fit the terminal is how it gets lost.
+if node --test --experimental-sqlite "test/**/*.test.mjs"; then
+  ok "node --test test/"
+else
+  die "tests failed — see above"
+fi
 
 # =============================================================== 2. STAGE ===
 hdr "2. Stage everything"

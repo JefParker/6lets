@@ -248,6 +248,193 @@ The admin dashboard leaderboard was left alone. It ignores the new field.
 `public/*.js` only, so the change to `functions/api/dashboard/leaderboard.js`
 was not parse-checked before pushing.
 
+## Feature — 2026-08-06, passkeys and sliding session expiry
+
+**Not yet deployed or run.** Written without a working sandbox, so nothing below
+has been executed — see "Before this ships" at the end.
+
+### Passkeys (WebAuthn), no library
+
+`lib/webauthn.js` does the ceremony on WebCrypto alone. The reason a WebAuthn
+server normally needs `@simplewebauthn/server` is the `attestationObject` —
+CBOR wrapping authData wrapping a COSE key — and this codebase never sees one.
+The browser hands over the same three facts already unwrapped: `getPublicKey()`
+returns SPKI that `importKey('spki', …)` takes directly, `getPublicKeyAlgorithm()`
+returns the COSE algorithm number, `getAuthenticatorData()` returns raw authData
+so the server still checks the rpIdHash and the flags itself.
+
+The objection is "then the client is telling you its own public key". It does
+not survive being written out: registration requests `attestation: "none"`, and
+a none-format attestation object carries no signature over its contents, so
+decoding it authenticates nothing — a lying client could put a different key in
+the CBOR and a dutiful parser would learn nothing. Both routes trust the client
+identically; one costs 150 lines. And the most a lying client achieves is
+registering a credential it controls against an account it is already signed in
+to, which it can do through the front door. That reasoning is in the file,
+because someone will try to "fix" it.
+
+**Password sign-in stays, and `password_hash` stays NOT NULL.** A passkey lives
+on a device; a passkey-only admin with a dead phone has one route back in, and
+it is whatever the account-creation script is, at exactly the moment they are
+locked out of running it comfortably. On the login modal the password form keeps
+first position and the primary button; the passkey is a quiet button underneath,
+revealed only where the browser supports it.
+
+Checked on every ceremony: challenge issued by us, unconsumed, unexpired and for
+the right ceremony (a registration challenge is not redeemable as a sign-in);
+`clientData.type`; `clientData.origin` by **exact** string equality, not
+`endsWith`; `crossOrigin !== true`; rpIdHash equals SHA-256 of the RP ID; and
+the user-verified flag — `userVerification: "required"` is *requested*, but an
+authenticator may ignore the request, so asking without checking means a bare
+touch satisfies a login the UI calls a fingerprint.
+
+**The trap with no symptom.** ECDSA signatures arrive DER-wrapped; WebCrypto
+wants raw r‖s. Skip the conversion and `crypto.subtle.verify` does not throw —
+it returns `false`, for every valid signature, forever, with nothing in any log,
+while every other check in the ceremony passes and points at nothing.
+`derToRawEcdsaSignature` is the fix and the test suite signs with raw r‖s then
+re-wraps it as DER specifically so that deleting the function turns the suite
+red.
+
+Other decisions worth not re-litigating:
+
+- **Discoverable credentials** (`residentKey: 'required'`, empty
+  `allowCredentials`). The credential knows its own account, so there is no
+  username box — and the sign-in options response does not vary with what is
+  enrolled, so it enumerates nothing.
+- **Challenges are single-use, and that is the whole anti-replay story.**
+  Consumed *before* the signature is verified: verify-first-mark-used-on-success
+  lets a captured assertion be retried until the challenge expires. The
+  consuming `UPDATE … WHERE challenge = ? AND consumed_at IS NULL` is the guard,
+  not a preceding `SELECT` — two replays both pass a SELECT, only one changes a
+  row.
+- **Sign counts are recorded, never enforced.** iCloud Keychain, Google Password
+  Manager and every syncing provider return 0 forever by design. Enforcing
+  monotonicity locks out the common case and catches nothing.
+- **Enrolment requires an existing session**, with `excludeCredentials` passed
+  as a hint and the UNIQUE constraint on `credential_id` as the thing that
+  actually holds.
+- **Every sign-in failure returns one vague message**; the specific reason goes
+  to `console.warn`. `NotAllowedError` from the browser means cancelled *or*
+  timed out and the browser will not say which, so the client says nothing at
+  all — reporting it as a failure is how a working passkey looks broken.
+- **RP ID is derived from the request URL, not config.** A passkey made on
+  `localhost` will not work on production and vice versa; if the site also
+  answers on `*.pages.dev` those are two separate credential namespaces, where
+  the button appears on both and finds credentials on one.
+
+### Sessions moved into D1, with two windows
+
+Sessions were a stateless HMAC token. That meant "Log Out" could only clear the
+cookie — the token itself stayed valid for its full week in anyone else's hands.
+They are now rows in `AdminSessions` and the cookie carries an opaque id, so
+logout revokes.
+
+Two windows instead of one lifetime: idle (72h, pushed forward on use) and
+absolute (90 days, fixed at creation). A flat 90 days means a stolen cookie is
+good for three months whether or not anyone used it.
+
+- **The cookie gets the ABSOLUTE window and is never refreshed.** Give it the
+  idle window and the browser drops it after 72 hours while the row is alive and
+  sliding — a random sign-out with a perfectly good session in the database.
+  That the cookie can name a session which has since gone idle is not a hole:
+  the id is opaque and the SQL refuses it. The alternative is `Set-Cookie` on
+  every response in the project.
+- **Renewal is `MIN(ceiling, MAX(current, wanted))`,** in SQL, reading the
+  ceiling from the row inside the UPDATE. `MAX` never shortens (a clock that
+  steps back, or a lowered idle window, must not sign out somebody
+  mid-sentence); `MIN` is the hard bound and is applied last. Capping in
+  application code and then writing `CASE WHEN capped > expires_at` quietly
+  ranks never-shorten above the ceiling, because an expiry already past the cap
+  cannot be pulled back. The "renewal cannot pass the ceiling" test is what pins
+  this down.
+- **Renewal is throttled to ~15 minutes,** in the UPDATE's `WHERE` rather than
+  an `if` around it, so the dashboard's four-calls-on-load does not become four
+  writes.
+- **Sliding is opt-in per call site.** `getSession` slides only when passed an
+  idle window, and only `requireAdminSession` passes one. A future service
+  account keeps flat behaviour until someone decides otherwise, and that
+  decision is one argument rather than an accident.
+- Timestamps are fixed-width ISO (`YYYY-MM-DDTHH:MM:SSZ`, no milliseconds), so
+  the string comparisons in that SQL are chronological.
+
+**Everyone signed in gets signed out once**, since old cookies name no row. That
+is the fail-closed direction.
+
+### Admin accounts
+
+There was no admin user table — auth was one `DASHBOARD_USERNAME` /
+`DASHBOARD_PASSWORD` pair compared in the worker, and a passkey needs an owner
+row. `AdminUsers` is new, seeded automatically from those environment variables
+on the first successful login against an empty table, so the migration cannot
+lock the dashboard. Once a row exists that bootstrap is inert and rotating the
+environment variable changes nothing — use `tools/create-admin.sh` instead.
+
+Login derives a PBKDF2 hash on both paths, against `DECOY_PASSWORD_HASH` when
+the username is unknown, so an unknown username is not the fast answer. Note the
+decoy is a module constant: building one with `hashPassword()` per request costs
+*two* derivations on that path and one on the other, which does not remove the
+timing signal so much as double it and point it the other way.
+
+`PBKDF2_ITERATIONS = 100000` is exactly workerd's ceiling — anything higher
+throws `NotSupportedError` — so that constant cannot be raised on this runtime.
+
+### Tests
+
+`npm test`, on `node:test` with no new dependencies. The ceremony is exercised
+end to end against a synthetic P-256 authenticator built from WebCrypto:
+generate a keypair, export SPKI, build authData by hand, sign
+`authData ‖ SHA-256(clientDataJSON)`, then convert the signature *up* to DER so
+the server has to convert it back down.
+
+Covers: a real signature signs in; the same assertion replayed verbatim is
+refused; an unset UV flag is refused; a lookalike origin
+(`…example.com.attacker.net`) is refused; a corrupted signature is refused;
+session-guarded routes refuse an anonymous caller. Plus the sliding window with
+timestamps set directly rather than waited for — new sessions expire on the idle
+window not the ceiling, the cookie's Max-Age is the ceiling, use pushes the
+expiry forward, a second read seconds later writes nothing, renewal cannot pass
+a ceiling set below the current expiry, a shorter idle window does not shorten a
+live session, and both ways a session ends.
+
+⚠ **`node:sqlite` is flagged on Node 22.x** (unflagged only in 23.4), and the
+database-backed tests skip themselves without it — which would exit 0 having
+verified none of the above. `npm test` passes `--experimental-sqlite`, and
+`test/database.test.mjs` fails loudly if the module still could not load. That
+is deliberate; do not turn it into a skip. It is the same shape as the index
+incident above: a green tick describing a command rather than a result.
+
+`tools/commit-and-push.sh` now also runs the suite, and parse-checks `lib/` and
+`functions/` with `--input-type=module` — they were never checked at all before,
+which is how the `leaderboard.js` change reached production unparsed.
+
+### Before this ships
+
+1. `npm test` — none of it has been run.
+2. `npm run db:migrate:preview`, then exercise the dashboard on a preview
+   deploy, including enrolling a passkey. Note the RP ID caveat: a passkey
+   enrolled on the preview hostname will not work on production.
+3. `npm run db:migrate` **then** deploy — in that order, chained with `&&`
+   (`npm run deploy:safe`). The new code selects columns that do not exist yet,
+   so a deploy that outruns its schema answers 500 on every dashboard route
+   while the static pages render perfectly. Schema-ahead-of-code is safe.
+4. Verify against the deployed site *after* the build has promoted, not
+   immediately after the push — running it straight away tests the previous
+   deployment and passes. A Pages build that rejects `wrangler.toml` applies no
+   bindings at all and the site looks fine until an API route is called.
+5. Sign in with the password, add a passkey, sign out, sign in with the passkey.
+6. If any `--remote` command fails with **7403** ("not authorized to access this
+   service"), run `wrangler login`. It reads like billing and it is a stale
+   OAuth token; `wrangler whoami` will not help, because it prints the scopes
+   recorded at last login rather than what the token grants now.
+
+**Still open:** there is no rate limiting on `/api/dashboard/*`.
+`passkeys/signin-options` is unauthenticated and writes an `AdminChallenges` row
+per call, and `login` burns a PBKDF2 derivation per call. Neither is a new hole
+— `login` was always unauthenticated — but both are cheaper to hammer than they
+were. A Cloudflare WAF rate-limiting rule on that path prefix is the fix, and it
+lives in the dashboard rather than in this repo.
+
 ## Still open (cosmetic, your call)
 
 1. **Missing art.** I removed the manifest entries for `6lets-maskable-512.png` and `6Lets-Desktop-SS.png` rather than inventing them. Add the files if you want a maskable icon and a wide install-prompt screenshot. `apple-touch-icon` currently points at `6lets192.png`; a dedicated 180×180 would be better.

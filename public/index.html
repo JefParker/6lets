@@ -198,6 +198,21 @@
             </div>
 
             <button id="admin-login-submit-btn" style="width: 100%; background: var(--key-eval-correct); border: none; padding: 12px; font-size: 1.2rem; color: #fff; border-radius: 4px; cursor: pointer; font-weight: bold;">Login</button>
+
+            <!--
+              The password form stays first and keeps the primary button; the
+              passkey is a quiet secondary underneath. Password is the route
+              that works from a device that has never been enrolled, which is
+              the one you need when you are locked out.
+
+              Hidden by default and revealed by script.js only where the browser
+              actually supports WebAuthn — a button that opens nothing is worse
+              than no button.
+            -->
+            <div id="admin-passkey-row" style="display: none; margin-top: 14px; text-align: center;">
+                <div style="font-size: 0.85rem; opacity: 0.6; margin-bottom: 8px;">or</div>
+                <button id="admin-passkey-signin-btn" style="width: 100%; background: transparent; border: 1px solid #999; padding: 10px; font-size: 1rem; color: inherit; border-radius: 4px; cursor: pointer;">Sign in with a passkey</button>
+            </div>
         </div>
     </div>
 
@@ -297,6 +312,20 @@
             <button id="save-words-btn" style="width: 100%; padding: 12px; background: var(--key-eval-correct); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 1.1rem; margin-top: 10px; display: none;">Save Words</button>
         </div>
         
+        <!--
+          Passkey management. Enrolment happens from in here, behind an existing
+          session, because attaching a credential without proving you hold the
+          current one is account takeover with extra steps.
+        -->
+        <div id="admin-passkeys-section" style="display: none; margin-top: 25px; text-align: left; width: 100%; border-top: 1px solid var(--key-bg); padding-top: 15px;">
+            <h4 style="margin: 0 0 10px 0; color: var(--text-color);">Passkeys</h4>
+            <div id="admin-passkey-list" style="font-size: 0.9rem; margin-bottom: 12px;"></div>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="admin-passkey-nickname" maxlength="40" placeholder="Name this device" style="flex: 1; font-size: 0.95rem; padding: 8px; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; box-sizing: border-box; color: #111;">
+                <button id="admin-add-passkey-btn" style="padding: 8px 14px; background: var(--key-eval-correct); color: #fff; border: none; border-radius: 4px; cursor: pointer;">Add</button>
+            </div>
+        </div>
+
         <div style="margin-top: 20px; text-align: left; width: 100%;">
             <button id="admin-logout-btn" style="padding: 10px 20px; background: darkred; color: white; border: none; border-radius: 4px; cursor: pointer;">Log Out</button>
         </div>
@@ -363,6 +392,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=44"></script>
+    <script src="script.js?v=45"></script>
 </body>
 </html>

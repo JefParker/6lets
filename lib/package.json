@@ -1,0 +1,4 @@
+{
+  "//": "Marks lib/ as ES modules. The root package.json says \"type\": \"commonjs\", which would make Node parse these files as CommonJS and throw on the first `export`. Wrangler bundles functions/ with esbuild and handles either, so this only matters when Node loads lib/ directly — which `npm test` does. Scoped to this directory so that public/*.js keeps being parsed the way `node --check` in tools/commit-and-push.sh already parses it.",
+  "type": "module"
+}

@@ -6,4 +6,29 @@ compatibility_date = "2024-03-20"
 binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "sixlets-db"
 database_id = "7f51424d-8f1b-4ee1-a5d1-c79ce6f41a9e"
+# Only consulted by `wrangler pages dev` and `wrangler d1 execute --preview`.
+# It does NOT bind preview deployments — see the block below.
 preview_database_id = "5da8b71d-93bf-439f-a474-17d53a4a4789"
+
+# Preview deployments do not inherit the binding above.
+#
+# For Pages, the top-level configuration IS the production environment. A branch
+# deployment reads [env.preview], and with no such section it falls back to the
+# production binding — so every preview deploy was reading and writing live
+# player data, which is exactly what the "Preview and production D1 split" entry
+# in CODE_REVIEW.md believed it had stopped. Setting `preview_database_id` alone
+# was not enough; that key only reaches `wrangler pages dev` and
+# `wrangler d1 execute --preview`.
+#
+# Found 2026-08-06: a --branch=passkeys-preview deployment answered /api/words
+# with 200 (DailyWords exists in both databases, so nothing looked wrong) while
+# every /api/dashboard route returned 500, because it was reading production,
+# where the Admin* tables had not been migrated yet. The symptom was a missing
+# table; the cause was the wrong database.
+#
+# Environments do not inherit in Wrangler config, so the binding is repeated in
+# full here rather than overriding one key.
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "sixlets-db"
+database_id = "5da8b71d-93bf-439f-a474-17d53a4a4789"

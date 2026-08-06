@@ -1866,11 +1866,7 @@ async function attemptAdminLogin(user, pass) {
         });
         
         if (res.ok) {
-            safeStorage.setItem('hasAdminSession', 'true');
-            document.getElementById('admin-login-modal').classList.add('hidden');
-            document.getElementById('admin-dashboard-modal').classList.remove('hidden');
-            animateBouncyWord('dashboard-word-container', 'DASHBOARD');
-            renderAdminCalendar();
+            enterDashboard();
         } else {
             const data = await res.json();
             showToast(data.error || 'Login failed');
@@ -1909,6 +1905,294 @@ document.getElementById('close-admin-dashboard-btn').addEventListener('click', (
     document.getElementById('admin-dashboard-modal').classList.add('hidden');
     document.getElementById('modal-overlay').classList.add('hidden');
 });
+
+// === ADMIN PASSKEYS (WebAuthn) ===
+//
+// Both ceremonies deliberately send the server the *unwrapped* results rather
+// than the attestationObject: getPublicKey() gives SPKI the server can import
+// directly, getPublicKeyAlgorithm() gives the COSE algorithm number, and
+// getAuthenticatorData() gives the raw authData so the server can still check
+// the rpIdHash and the flags itself. See the long comment at the top of
+// lib/webauthn.js for why parsing the attestation object instead would buy
+// nothing at attestation: "none".
+
+function bufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlToBuffer(value) {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+        .padEnd(value.length + ((4 - (value.length % 4)) % 4), '=');
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+}
+
+function passkeysSupported() {
+    return typeof window.PublicKeyCredential === 'function' &&
+        !!(navigator.credentials && navigator.credentials.create && navigator.credentials.get);
+}
+
+// A cancelled or timed-out ceremony throws NotAllowedError, and the browser
+// deliberately refuses to say which — distinguishing "user dismissed the sheet"
+// from "nothing responded in 60s" would itself leak. So it is neither an error
+// nor a success: say nothing at all.
+//
+// Reporting it as a failure is exactly how a perfectly working passkey setup
+// comes to look broken: you tap the wrong thing, dismiss the sheet, and the app
+// tells you your passkey failed.
+function isCeremonyCancellation(e) {
+    return e && (e.name === 'NotAllowedError' || e.name === 'AbortError');
+}
+
+async function signInWithPasskey() {
+    if (!navigator.onLine) {
+        showToast('Admin features are unavailable while offline');
+        return;
+    }
+
+    try {
+        const optionsRes = await fetch('/api/dashboard/passkeys/signin-options', { method: 'POST' });
+        if (!optionsRes.ok) {
+            showToast('Could not start passkey sign-in');
+            return;
+        }
+        const options = await optionsRes.json();
+
+        const assertion = await navigator.credentials.get({
+            publicKey: {
+                challenge: base64urlToBuffer(options.challenge),
+                rpId: options.rpId,
+                // Empty: the credential knows which account it belongs to, so
+                // the browser's own picker answers "who" and there is no
+                // username box to fill in.
+                allowCredentials: [],
+                userVerification: options.userVerification,
+                timeout: options.timeout
+            }
+        });
+
+        if (!assertion) return; // Treated as a cancellation.
+
+        const verifyRes = await fetch('/api/dashboard/passkeys/signin-verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                challenge: options.challenge,
+                credentialId: assertion.id,
+                clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+                authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+                signature: bufferToBase64url(assertion.response.signature)
+            })
+        });
+
+        if (verifyRes.ok) {
+            enterDashboard();
+        } else {
+            const data = await verifyRes.json().catch(() => ({}));
+            showToast(data.error || 'Could not sign in with that passkey');
+        }
+    } catch (e) {
+        if (isCeremonyCancellation(e)) return;
+        console.warn('Passkey sign-in failed', e);
+        showToast('Could not sign in with that passkey');
+    }
+}
+
+async function addPasskey() {
+    const nicknameInput = document.getElementById('admin-passkey-nickname');
+    const nickname = nicknameInput.value.trim();
+
+    if (!nickname) {
+        showToast('Give this passkey a name first');
+        return;
+    }
+
+    try {
+        const optionsRes = await fetch('/api/dashboard/passkeys/register-options', { method: 'POST' });
+        if (!optionsRes.ok) {
+            showToast('Could not start passkey registration');
+            return;
+        }
+        const options = await optionsRes.json();
+
+        const credential = await navigator.credentials.create({
+            publicKey: {
+                challenge: base64urlToBuffer(options.challenge),
+                rp: options.rp,
+                user: {
+                    id: base64urlToBuffer(options.user.id),
+                    name: options.user.name,
+                    displayName: options.user.displayName
+                },
+                pubKeyCredParams: options.pubKeyCredParams,
+                authenticatorSelection: options.authenticatorSelection,
+                attestation: options.attestation,
+                excludeCredentials: (options.excludeCredentials || []).map(c => ({
+                    type: c.type,
+                    id: base64urlToBuffer(c.id),
+                    transports: c.transports
+                })),
+                timeout: options.timeout
+            }
+        });
+
+        if (!credential) return;
+
+        const response = credential.response;
+
+        // These three are what make the server's CBOR decoder unnecessary. They
+        // have been in every major browser for years, but check rather than
+        // assume: without the guard, an old browser throws
+        // "response.getPublicKey is not a function", which the catch below
+        // would surface to the user as though they had done something wrong.
+        if (typeof response.getPublicKey !== 'function' ||
+            typeof response.getPublicKeyAlgorithm !== 'function' ||
+            typeof response.getAuthenticatorData !== 'function') {
+            showToast('This browser is too old to register a passkey');
+            return;
+        }
+
+        const publicKey = response.getPublicKey();
+        if (!publicKey) {
+            showToast('This device produced a key we cannot use');
+            return;
+        }
+
+        const verifyRes = await fetch('/api/dashboard/passkeys/register-verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                challenge: options.challenge,
+                nickname,
+                credentialId: credential.id,
+                clientDataJSON: bufferToBase64url(response.clientDataJSON),
+                authenticatorData: bufferToBase64url(response.getAuthenticatorData()),
+                publicKey: bufferToBase64url(publicKey),
+                algorithm: response.getPublicKeyAlgorithm(),
+                transports: typeof response.getTransports === 'function' ? response.getTransports() : null
+            })
+        });
+
+        const data = await verifyRes.json().catch(() => ({}));
+
+        if (verifyRes.ok) {
+            nicknameInput.value = '';
+            showToast('Passkey added');
+            loadPasskeys();
+        } else {
+            showToast(data.error || 'Could not register the passkey');
+        }
+    } catch (e) {
+        if (isCeremonyCancellation(e)) return;
+
+        // InvalidStateError is the authenticator honouring excludeCredentials:
+        // this device is already enrolled. That is a normal thing to run into,
+        // not a fault.
+        if (e && e.name === 'InvalidStateError') {
+            showToast('This device already has a passkey for this account');
+            return;
+        }
+        console.warn('Passkey registration failed', e);
+        showToast('Could not register the passkey');
+    }
+}
+
+async function loadPasskeys() {
+    const list = document.getElementById('admin-passkey-list');
+    if (!list) return;
+
+    try {
+        const res = await fetch('/api/dashboard/passkeys');
+        if (!res.ok) {
+            list.textContent = 'Could not load passkeys.';
+            return;
+        }
+
+        const data = await res.json();
+        list.replaceChildren();
+
+        if (!data.passkeys || data.passkeys.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.opacity = '0.7';
+            empty.textContent = 'No passkeys yet. Add one to sign in without a password.';
+            list.appendChild(empty);
+            return;
+        }
+
+        data.passkeys.forEach(passkey => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0;';
+
+            const label = document.createElement('span');
+            // textContent, not innerHTML — the nickname is user-supplied, and
+            // the admin leaderboard already taught this codebase that lesson.
+            label.textContent = passkey.lastUsedAt
+                ? `${passkey.nickname} — last used ${passkey.lastUsedAt.slice(0, 10)}`
+                : `${passkey.nickname} — never used`;
+
+            const remove = document.createElement('button');
+            remove.textContent = 'Remove';
+            remove.style.cssText = 'background: transparent; border: 1px solid #999; color: inherit; border-radius: 4px; padding: 4px 10px; cursor: pointer;';
+            remove.addEventListener('click', () => removePasskey(passkey.id, passkey.nickname));
+
+            row.appendChild(label);
+            row.appendChild(remove);
+            list.appendChild(row);
+        });
+    } catch (e) {
+        console.warn('Could not load passkeys', e);
+        list.textContent = 'Could not load passkeys.';
+    }
+}
+
+async function removePasskey(id, nickname) {
+    if (!confirm(`Remove the passkey "${nickname}"?`)) return;
+
+    try {
+        const res = await fetch(`/api/dashboard/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (res.ok) {
+            showToast('Passkey removed');
+            loadPasskeys();
+        } else {
+            showToast('Could not remove the passkey');
+        }
+    } catch (e) {
+        console.warn('Could not remove passkey', e);
+        showToast('Could not remove the passkey');
+    }
+}
+
+// Shared by both sign-in routes so the password path and the passkey path can
+// never drift into opening the dashboard differently.
+function enterDashboard() {
+    safeStorage.setItem('hasAdminSession', 'true');
+    document.getElementById('admin-login-modal').classList.add('hidden');
+    document.getElementById('admin-dashboard-modal').classList.remove('hidden');
+    animateBouncyWord('dashboard-word-container', 'DASHBOARD');
+    renderAdminCalendar();
+
+    if (passkeysSupported()) {
+        document.getElementById('admin-passkeys-section').style.display = 'block';
+        loadPasskeys();
+    }
+}
+
+if (passkeysSupported()) {
+    // Revealed only where the browser can actually run the ceremony. A button
+    // that opens nothing is worse than no button.
+    document.getElementById('admin-passkey-row').style.display = 'block';
+    document.getElementById('admin-passkey-signin-btn')
+        .addEventListener('click', signInWithPasskey);
+    document.getElementById('admin-add-passkey-btn')
+        .addEventListener('click', addPasskey);
+}
 
 function renderAdminCalendar() {
     const year = dashboardCurrentDate.getFullYear();
