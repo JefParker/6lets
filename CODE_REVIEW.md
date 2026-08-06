@@ -428,6 +428,51 @@ which is how the `leaderboard.js` change reached production unparsed.
    OAuth token; `wrangler whoami` will not help, because it prints the scopes
    recorded at last login rather than what the token grants now.
 
+### Found while deploying — preview was never actually isolated
+
+The "Preview and production D1 split" entry above is wrong, and was wrong from
+the day it was written. Setting `preview_database_id` inside `[[d1_databases]]`
+does **not** bind preview deployments. That key only reaches
+`wrangler pages dev` and `wrangler d1 execute --preview`. For Pages, the
+top-level `wrangler.toml` configuration *is* the production environment, and a
+branch deployment reads `[env.preview]` — with no such section it falls back to
+the production binding. So every preview deploy since that change has been
+reading and writing live player data.
+
+How it surfaced: a `--branch=passkeys-preview` deployment answered `/api/words`
+with a clean 200 while every `/api/dashboard/*` route returned 500. `DailyWords`
+exists in both databases, so the working endpoint proved nothing; the failing
+ones were reading production, where the `Admin*` tables had not been migrated
+yet. The symptom was a missing table and the cause was the wrong database.
+
+Fixed by an explicit `[[env.preview.d1_databases]]` block in `wrangler.toml`.
+Environments do not inherit in Wrangler config, so the binding is repeated in
+full rather than overriding one key.
+
+This is the same lesson as the index incident, one level up: `preview_database_id`
+looked like the isolation and never was, exactly as `CREATE TABLE IF NOT EXISTS`
+looked like the constraint and never was. Both were verified by reading the
+config file rather than asking the running system.
+
+### Found while deploying — `wrangler d1 execute --file` is refused
+
+`--file` uploads through D1's bulk-import endpoint, which returns
+`Authentication error [code: 10000]` on this account — before and after a fresh
+`wrangler login`. The ordinary query endpoint accepted `--command` on the same
+token seconds later, both reads and DDL writes, so it is that one API surface
+being refused rather than the token, the account or the permissions.
+
+`wrangler whoami` printed `d1 (write)` and "Super Administrator - All
+Privileges" throughout. It reports the scopes recorded in the local config file
+at last login, not what the token currently grants, so it cannot answer this
+question and confidently appears to.
+
+`tools/migrate.sh` works around it by splitting the migration and sending each
+statement through the endpoint that works; `npm run db:migrate` now goes through
+it. That splitter is only safe because migrations here contain no semicolons
+inside string literals — if you write one, it will cut the statement in half and
+report a syntax error in perfectly good SQL.
+
 **Still open:** there is no rate limiting on `/api/dashboard/*`.
 `passkeys/signin-options` is unauthenticated and writes an `AdminChallenges` row
 per call, and `login` burns a PBKDF2 derivation per call. Neither is a new hole
