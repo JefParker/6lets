@@ -1705,10 +1705,8 @@ const adminBtn = document.getElementById('admin-btn-header');
 if (adminBtn) {
     adminBtn.addEventListener('click', () => {
         if (safeStorage.getItem('hasAdminSession') === 'true') {
-            document.getElementById('admin-dashboard-modal').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
-            animateBouncyWord('dashboard-word-container', 'DASHBOARD');
-            renderAdminCalendar();
+            openDashboard();
         } else {
             document.getElementById('admin-login-modal').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
@@ -2343,9 +2341,12 @@ async function removePasskey(id, nickname) {
 
 // Shared by both sign-in routes so the password path and the passkey path can
 // never drift into opening the dashboard differently.
-function enterDashboard() {
-    safeStorage.setItem('hasAdminSession', 'true');
-    document.getElementById('admin-login-modal').classList.add('hidden');
+// Everything the dashboard needs loaded whenever it opens — whichever door it
+// opens through. There are two: a fresh login (enterDashboard) and the header
+// button with a session already live. The header path used to inline its own
+// subset and silently miss anything added only to enterDashboard, which is
+// how the runway indicator shipped invisible to a signed-in admin.
+function openDashboard() {
     document.getElementById('admin-dashboard-modal').classList.remove('hidden');
     animateBouncyWord('dashboard-word-container', 'DASHBOARD');
     renderAdminCalendar();
@@ -2355,6 +2356,12 @@ function enterDashboard() {
         document.getElementById('admin-passkeys-section').style.display = 'block';
         loadPasskeys();
     }
+}
+
+function enterDashboard() {
+    safeStorage.setItem('hasAdminSession', 'true');
+    document.getElementById('admin-login-modal').classList.add('hidden');
+    openDashboard();
 }
 
 // The scheduling runway line at the top of the dashboard. Words used to run

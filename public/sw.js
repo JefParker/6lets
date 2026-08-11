@@ -1,7 +1,7 @@
 // Bump on every asset change — `install` only re-fetches ASSETS when this
 // changes, and cacheFirst matches with ignoreSearch, so the `?v=` query strings
 // in index.html do not bust the cache on their own.
-const CACHE_NAME = '6lets-cache-v49';
+const CACHE_NAME = '6lets-cache-v50';
 // Word data, refreshed by periodic background sync — NOT versioned with the
 // assets above, and exempt from the activate-time cleanup, because wiping it
 // on every asset deploy would throw away exactly the offline coverage it
