@@ -318,6 +318,11 @@ function showToast(message) {
 // Game Logic
 function handleKeyPress(key) {
     if (gameState !== 'playing') return;
+    // Without the real answer there is nothing legitimate to score against —
+    // a guess accepted here would be judged against the offline fallback word
+    // and could commit a wrong result (see startGame, which shows the retry
+    // panel instead of the board in this state).
+    if (!targetWordResolved) return;
     // The submitted row stays as #active-row for the ~1s the flip animation
     // runs. Accepting input during that window let updateActiveRow() overwrite
     // the tiles being revealed (blanking the word the player just entered) and
@@ -1812,39 +1817,82 @@ if ('serviceWorker' in navigator) {
 
 window.addEventListener('online', () => {
     showToast('You are back online. Syncing...');
-    syncResults();
+    // A game blocked on the word list was waiting for exactly this; retry the
+    // full start rather than just syncing.
+    if (gameState === 'playing' && !targetWordResolved) {
+        startGame().catch(e => console.warn('Retry failed:', e));
+    } else {
+        syncResults();
+    }
 });
 window.addEventListener('offline', () => {
     showToast('You are offline. Playing in offline mode.');
 });
 
+function showWordLoadError() {
+    document.getElementById('board').classList.add('hidden');
+    document.getElementById('word-load-error').classList.remove('hidden');
+}
+
+function hideWordLoadError() {
+    document.getElementById('board').classList.remove('hidden');
+    document.getElementById('word-load-error').classList.add('hidden');
+}
+
+// Fetch the word list, resolve today's word, and start the game — or refuse
+// to. A game dealt against the offline fallback word records a win or loss the
+// real answer contradicts; it syncs, lands on the leaderboard as a grid that
+// never turns green, and cannot be repaired from the client afterwards. So an
+// unresolved word shows a retry panel instead of a board. Re-run by the retry
+// button and the 'online' listener, so everything here must be safe to repeat.
+async function startGame() {
+    await fetchOfflineWords();
+    determineTargetWord();
+
+    if (gameState === 'playing' && !targetWordResolved) {
+        showWordLoadError();
+        // Results from earlier games can still sync while we wait for a word.
+        if (navigator.onLine) {
+            syncResults().catch(e => console.warn('Background sync failed:', e));
+        }
+        return;
+    }
+
+    hideWordLoadError();
+    // If this resolves the game it calls finishGame(), which already
+    // schedules the post-game modal — don't schedule a second one below.
+    const justResolved = resolveInterruptedGame();
+    renderBoard();
+
+    // Sync results and then pull down state (now that gameId is known)
+    if (navigator.onLine) {
+        syncResults().then(() => syncDown()).catch(e => console.warn('Background sync failed:', e));
+    }
+
+    if (gameState !== 'playing') {
+        updateHeaderIconToStats();
+        if (!justResolved) setTimeout(handlePostGame, 500);
+    } else if (guesses.length === 0) {
+        setTimeout(() => {
+            document.getElementById('help-modal').classList.remove('hidden');
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            animateBouncyWord('help-word-container');
+        }, 100);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initKeyboard();
     loadState();
-    
-    fetchOfflineWords().then(() => {
-        determineTargetWord();
-        // If this resolves the game it calls finishGame(), which already
-        // schedules the post-game modal — don't schedule a second one below.
-        const justResolved = resolveInterruptedGame();
-        renderBoard();
 
-        // Sync results and then pull down state (now that gameId is known)
-        if (navigator.onLine) {
-            syncResults().then(() => syncDown()).catch(e => console.warn('Background sync failed:', e));
-        }
+    const retryBtn = document.getElementById('word-load-retry');
+    if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+            startGame().catch(e => console.warn('Retry failed:', e));
+        });
+    }
 
-        if (gameState !== 'playing') {
-            updateHeaderIconToStats();
-            if (!justResolved) setTimeout(handlePostGame, 500);
-        } else if (guesses.length === 0) {
-            setTimeout(() => {
-                document.getElementById('help-modal').classList.remove('hidden');
-                document.getElementById('modal-overlay').classList.remove('hidden');
-                animateBouncyWord('help-word-container');
-            }, 100);
-        }
-    }).catch(e => console.warn('Initialization error:', e));
+    startGame().catch(e => console.warn('Initialization error:', e));
 });
 
 // === ADMIN DASHBOARD LOGIC ===

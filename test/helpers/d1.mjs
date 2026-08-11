@@ -85,6 +85,24 @@ class D1Like {
     prepare(sql) {
         return new Statement(this.db, sql);
     }
+
+    // D1 batches are atomic, so a failing statement rolls back the whole
+    // batch here too — /api/results relies on exactly that (see the comment
+    // there about FK violations aborting the batch).
+    async batch(statements) {
+        const results = [];
+        this.db.exec('BEGIN');
+        try {
+            for (const stmt of statements) {
+                results.push(await stmt.run());
+            }
+            this.db.exec('COMMIT');
+        } catch (e) {
+            this.db.exec('ROLLBACK');
+            throw e;
+        }
+        return results;
+    }
 }
 
 // Builds an in-memory database with the real migration applied — not a
@@ -93,6 +111,10 @@ class D1Like {
 export function createTestDatabase() {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON;');
+    // schema.sql first, then the migration — the order they reached production
+    // in. Together they give the full database: game tables (Users,
+    // DailyWords, Results) and the admin/session tables.
+    db.exec(readFileSync(join(REPO_ROOT, 'schema.sql'), 'utf8'));
     db.exec(readFileSync(join(REPO_ROOT, 'migrations', '0001_admin_auth_and_sessions.sql'), 'utf8'));
     return { db, env: { DB: new D1Like(db) } };
 }

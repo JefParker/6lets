@@ -1,0 +1,4 @@
+{
+  "//": "Marks functions/ as ES modules, same as lib/package.json and for the same reason: the root package.json says \"type\": \"commonjs\", which would make Node parse these files as CommonJS and throw on the first `export`. Wrangler bundles functions/ with esbuild and handles either, so this only matters when Node loads a function directly — which test/results.test.mjs does.",
+  "type": "module"
+}

@@ -2,6 +2,7 @@ import { GAME_ID_PATTERN } from '../../lib/puzzle.js';
 
 const MAX_BATCH_RECORDS = 100;
 const MAX_GUESSES = 10;
+const WORD_LENGTH = 6;
 // Generous ceiling (24h) — just enough to reject nonsense that would wreck the
 // leaderboard sort, not a real anti-cheat measure.
 const MAX_TIME_TAKEN_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +27,25 @@ function isValidRecord(res) {
     }
 
     return true;
+}
+
+// null: no blob (older clients). false: a blob that is present but malformed —
+// the record should be dropped, not stored, because the leaderboard scores
+// these blobs into grids. Otherwise: the guesses, uppercased.
+function parseGuessesBlob(blob) {
+    if (blob == null) return null;
+
+    let parsed;
+    try {
+        parsed = JSON.parse(blob);
+    } catch (e) {
+        return false;
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > MAX_GUESSES) return false;
+    for (const guess of parsed) {
+        if (typeof guess !== 'string' || guess.length !== WORD_LENGTH) return false;
+    }
+    return parsed.map(g => g.toUpperCase());
 }
 
 export async function onRequestPost(context) {
@@ -56,14 +76,16 @@ export async function onRequestPost(context) {
         const candidates = resultsArray.filter(isValidRecord);
         let skipped = resultsArray.length - candidates.length;
 
-        let knownGameIds = new Set();
+        // The words come along with the ids so solved_successfully can be
+        // derived below instead of trusted.
+        let wordsByGameId = new Map();
         if (candidates.length > 0) {
             const uniqueGameIds = [...new Set(candidates.map(c => c.game_id))];
             const placeholders = uniqueGameIds.map(() => '?').join(',');
             const { results: known } = await env.DB.prepare(
-                `SELECT id FROM DailyWords WHERE id IN (${placeholders})`
+                `SELECT id, word FROM DailyWords WHERE id IN (${placeholders})`
             ).bind(...uniqueGameIds).all();
-            knownGameIds = new Set(known.map(row => row.id));
+            wordsByGameId = new Map(known.map(row => [row.id, String(row.word).toUpperCase()]));
         }
 
         const stmt = env.DB.prepare(
@@ -85,9 +107,31 @@ export async function onRequestPost(context) {
         const batch = [];
         let accepted = 0;
         for (const res of candidates) {
-            if (!knownGameIds.has(res.game_id)) {
+            if (!wordsByGameId.has(res.game_id)) {
                 skipped++;
                 continue;
+            }
+
+            const parsedGuesses = parseGuessesBlob(res.guesses);
+            if (parsedGuesses === false) {
+                skipped++;
+                continue;
+            }
+
+            // When the guesses are present, score them here rather than
+            // believing the client's flag. A client that never learned the
+            // real word plays against its offline fallback and honestly
+            // reports a "win" its guesses contradict — which the leaderboard
+            // then renders as a solved row with a grid that never turns green,
+            // since grids are scored server-side against the real word. The
+            // same derivation covers guesses_taken, so a short count can't be
+            // claimed for a long game. Blob-less records (older clients) keep
+            // the client's values.
+            let solved = res.solved_successfully ? 1 : 0;
+            let guessesTaken = Number(res.guesses_taken);
+            if (parsedGuesses) {
+                solved = parsedGuesses[parsedGuesses.length - 1] === wordsByGameId.get(res.game_id) ? 1 : 0;
+                guessesTaken = parsedGuesses.length;
             }
 
             batch.push(userStmt.bind(res.user_uuid)); // Ensure user exists
@@ -95,9 +139,9 @@ export async function onRequestPost(context) {
                 crypto.randomUUID(), // Generate new UUID for the result record
                 res.user_uuid,
                 res.game_id,
-                Number(res.guesses_taken),
+                guessesTaken,
                 Number(res.time_taken_ms),
-                res.solved_successfully ? 1 : 0,
+                solved,
                 res.guesses || null
             ));
             accepted++;

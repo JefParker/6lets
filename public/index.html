@@ -67,6 +67,13 @@
 
         <div id="board-container">
             <div id="board"></div>
+            <!-- Shown instead of the board when today's word could not be
+                 loaded. Playing without it would score against the offline
+                 fallback word and record an unrepairable wrong result. -->
+            <div id="word-load-error" class="hidden" style="text-align: center; padding: 40px 24px;">
+                <p style="margin: 0 0 20px; font-size: 1.1rem; line-height: 1.5;">Couldn&rsquo;t load today&rsquo;s puzzle.<br>Check your connection and try again.</p>
+                <button id="word-load-retry" style="background: var(--key-bg-enter); border: none; padding: 10px 24px; border-radius: 8px; color: var(--key-color); font-size: 1.2rem; cursor: pointer;">Retry</button>
+            </div>
         </div>
 
         <div id="keyboard-container">
@@ -392,6 +399,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=45"></script>
+    <script src="script.js?v=46"></script>
 </body>
 </html>

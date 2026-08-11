@@ -5,13 +5,18 @@ export async function onRequestGet(context) {
 
     const currentGameId = getCurrentGameId();
 
-    // Only return a small look-ahead window (current game + next few half-days).
-    // Enough to keep offline play working across a game rollover, without
-    // exposing weeks of upcoming answers. NOTE: base64 below is obfuscation
-    // only, NOT security — anyone can decode it, so the window must stay small.
+    // Only return a small look-ahead window (current game + the next few
+    // half-days), enough for a device that synced recently to keep playing
+    // offline for a few days. NOTE: base64 below is obfuscation only, NOT
+    // security — anyone can decode it, so every word in this window is
+    // effectively published. Widening it trades that exposure for longer
+    // offline coverage; weeks would republish the answer key this repo already
+    // leaked once (see CODE_REVIEW.md). Also note `id >= ?` skips a missing
+    // current word — if today's row was never entered, clients get only future
+    // ids and (correctly) refuse to start a game rather than fall back.
     try {
         const { results } = await env.DB.prepare(
-            "SELECT id, word FROM DailyWords WHERE id >= ? ORDER BY id ASC LIMIT 4"
+            "SELECT id, word FROM DailyWords WHERE id >= ? ORDER BY id ASC LIMIT 8"
         ).bind(currentGameId).all();
 
         // Encode words in base64 to obfuscate them
