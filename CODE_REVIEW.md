@@ -467,11 +467,11 @@ Privileges" throughout. It reports the scopes recorded in the local config file
 at last login, not what the token currently grants, so it cannot answer this
 question and confidently appears to.
 
-`tools/migrate.sh` works around it by splitting the migration and sending each
-statement through the endpoint that works; `npm run db:migrate` now goes through
-it. That splitter is only safe because migrations here contain no semicolons
-inside string literals — if you write one, it will cut the statement in half and
-report a syntax error in perfectly good SQL.
+`tools/migrate.sh` works around it by sending the whole migration file as one
+`--command` through the endpoint that works; `npm run db:migrate` now goes
+through it. Wrangler splits the command into statements with a real SQL parser,
+so `--` and `;` inside string literals survive — an earlier version of the
+script split on `;` with sed/tr, which would have cut such a statement in half.
 
 **Still open:** there is no rate limiting on `/api/dashboard/*`.
 `passkeys/signin-options` is unauthenticated and writes an `AdminChallenges` row

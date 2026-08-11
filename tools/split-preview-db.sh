@@ -22,15 +22,7 @@
 set -u
 set -o pipefail
 
-PROD_DB_NAME="sixlets-db"
-PREVIEW_DB_NAME="sixlets-db-preview"
-
-RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
-ok()   { printf '%s  PASS%s  %s\n' "$GRN" "$RST" "$1"; }
-bad()  { printf '%s  FAIL%s  %s\n' "$RED" "$RST" "$1"; }
-warn() { printf '%s  WARN%s  %s\n' "$YLW" "$RST" "$1"; }
-hdr()  { printf '\n%s=== %s ===%s\n' "$BLD" "$1" "$RST"; }
-die()  { bad "$1"; exit 1; }
+. "$(dirname "$0")/lib.sh"
 
 # Pull a database's uuid out of `wrangler d1 list --json`, tolerating npm/npx
 # notice lines mixed into stdout.
@@ -55,6 +47,10 @@ hdr "Preflight"
 [ -f wrangler.toml ] || die "not in the 6Lets project root"
 [ -f schema.sql ]    || die "schema.sql not found"
 ok "project root ($(pwd))"
+
+PROD_DB_NAME=$(db_name)
+[ -n "$PROD_DB_NAME" ] || die "could not read database_name from wrangler.toml"
+PREVIEW_DB_NAME="${PROD_DB_NAME}-preview"
 
 npx --yes wrangler whoami >/dev/null 2>&1 || die "not logged in — run: npx wrangler login"
 ok "authenticated with Cloudflare"

@@ -23,7 +23,6 @@ set -o pipefail
 # If your Cloudflare Pages project is named something other than this, change
 # it here (check with: npx wrangler pages project list).
 PAGES_PROJECT="sixlets-pwa"
-D1_DATABASE="sixlets-db"
 
 # Credentials are NOT stored in this file. It is tracked in git, so a password
 # here is a password on GitHub — and deleting it later does not remove it from
@@ -37,13 +36,7 @@ DASHBOARD_USERNAME="${DASHBOARD_USERNAME:-}"
 DASHBOARD_PASSWORD="${DASHBOARD_PASSWORD:-}"
 
 # --------------------------------------------------------------- plumbing ---
-PASS=0; FAIL=0; SKIP=0
-RED=$'\033[31m'; GRN=$'\033[32m'; YLW=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
-
-ok()   { printf '%s  PASS%s  %s\n' "$GRN" "$RST" "$1"; PASS=$((PASS+1)); }
-bad()  { printf '%s  FAIL%s  %s\n' "$RED" "$RST" "$1"; FAIL=$((FAIL+1)); }
-skip() { printf '%s  SKIP%s  %s\n' "$YLW" "$RST" "$1"; SKIP=$((SKIP+1)); }
-hdr()  { printf '\n%s=== %s ===%s\n' "$BLD" "$1" "$RST"; }
+. "$(dirname "$0")/lib.sh"
 
 TMPDIR_ESM="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_ESM"' EXIT
@@ -56,6 +49,12 @@ if [ ! -f wrangler.toml ] || [ ! -d functions ] || [ ! -d public ]; then
   exit 1
 fi
 ok "project root looks right ($(pwd))"
+
+D1_DATABASE=$(db_name)
+if [ -z "$D1_DATABASE" ]; then
+  bad "could not read database_name from wrangler.toml"
+  exit 1
+fi
 
 for tool in node npm npx; do
   if command -v "$tool" >/dev/null 2>&1; then

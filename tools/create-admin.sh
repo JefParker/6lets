@@ -20,9 +20,7 @@
 set -u
 set -o pipefail
 
-RED=$'\033[31m'; GRN=$'\033[32m'; BLD=$'\033[1m'; RST=$'\033[0m'
-ok()  { printf '%s  PASS%s  %s\n' "$GRN" "$RST" "$1"; }
-die() { printf '%s  FAIL%s  %s\n' "$RED" "$RST" "$1"; exit 1; }
+. "$(dirname "$0")/lib.sh"
 
 [ -f wrangler.toml ] || die "not in the 6Lets project root"
 command -v node >/dev/null 2>&1 || die "node not found"
@@ -38,16 +36,17 @@ case "$USERNAME" in
   *[!A-Za-z0-9._-]*) die "username may contain only letters, digits, dot, underscore and hyphen" ;;
 esac
 
-DB_NAME="sixlets-db"
+DB_NAME=$(db_name)
+[ -n "$DB_NAME" ] || die "could not read database_name from wrangler.toml"
 REMOTE=""
 PREVIEW=""
 for arg in "$@"; do
   case "$arg" in
     --remote)  REMOTE="--remote" ;;
-    # --preview selects the preview database by FLAG, not by name. There is no
-    # database called "sixlets-db-preview" to address: the preview database is
-    # wired to this project through preview_database_id in wrangler.toml, and
-    # naming it directly fails to resolve.
+    # --preview points `d1 execute` at the database in preview_database_id in
+    # wrangler.toml — that key reaches only this flag and `wrangler pages dev`.
+    # Preview *deployments* bind theirs through [[env.preview.d1_databases]];
+    # the two must name the same database (see wrangler.toml, CODE_REVIEW.md).
     --preview) PREVIEW="--preview" ;;
     *) die "unknown option: $arg" ;;
   esac

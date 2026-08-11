@@ -11,7 +11,7 @@
     "deploy": "wrangler pages deploy",
     "db:schema": "wrangler d1 execute sixlets-db --file=schema.sql",
     "db:reset": "wrangler d1 execute sixlets-db --file=reset.sql",
-    "//db:migrate": "Goes through tools/migrate.sh rather than `wrangler d1 execute --file`, because --file uploads via D1's bulk-import endpoint, which returns Authentication error 10000 on this account while the ordinary query endpoint accepts the same statements on the same token. See the header of tools/migrate.sh.",
+    "//db:migrate": "Goes through tools/migrate.sh rather than `wrangler d1 execute --file` — the header of tools/migrate.sh explains why --file is unusable on this account.",
     "db:migrate:preview": "bash tools/migrate.sh migrations/0001_admin_auth_and_sessions.sql --remote --preview",
     "db:migrate": "bash tools/migrate.sh migrations/0001_admin_auth_and_sessions.sql --remote",
     "//deploy:safe": "Migrations before the deploy, chained with && — new code selects columns that do not exist yet, so a deploy that outruns its schema 500s on every affected route while the static pages render perfectly. The reverse order is safe.",
