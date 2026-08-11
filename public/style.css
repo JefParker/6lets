@@ -557,6 +557,14 @@ header {
     display: none;
 }
 
+/* There is deliberately no global `.hidden` utility in this file — every
+   consumer gets a scoped rule like the ones above. The word-load-error panel
+   and the board (hidden while the panel shows) are toggled by
+   show/hideWordLoadError in script.js. */
+#word-load-error.hidden, #board.hidden {
+    display: none;
+}
+
 .close-btn {
     position: absolute;
     top: 5px;
