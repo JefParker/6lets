@@ -1,7 +1,14 @@
 // Bump on every asset change — `install` only re-fetches ASSETS when this
 // changes, and cacheFirst matches with ignoreSearch, so the `?v=` query strings
 // in index.html do not bust the cache on their own.
-const CACHE_NAME = '6lets-cache-v47';
+const CACHE_NAME = '6lets-cache-v48';
+// Word data, refreshed by periodic background sync — NOT versioned with the
+// assets above, and exempt from the activate-time cleanup, because wiping it
+// on every asset deploy would throw away exactly the offline coverage it
+// exists to provide. The page merges this into localStorage on load (see
+// fetchOfflineWords in script.js).
+const WORDS_CACHE = 'sixlets-words-v1';
+const WORDS_URL = '/api/words';
 const ASSETS = [
     '/',
     '/index.html',
@@ -25,7 +32,7 @@ self.addEventListener('activate', event => {
         caches.keys().then(cacheNames => {
             return Promise.all(
                 cacheNames.map(cacheName => {
-                    if (cacheName !== CACHE_NAME) {
+                    if (cacheName !== CACHE_NAME && cacheName !== WORDS_CACHE) {
                         return caches.delete(cacheName);
                     }
                 })
@@ -87,6 +94,34 @@ async function networkFirst(request) {
         return Response.error();
     }
 }
+
+// Periodic background sync (registered by the page; Chromium-only, installed
+// PWAs). Tops up the word cache roughly daily even when nobody opens the app,
+// so a device that goes offline still has current words. On browsers without
+// the API this handler simply never fires and page-load fetches do the work.
+async function refreshWords() {
+    try {
+        const response = await fetch(WORDS_URL);
+        if (!response.ok) return;
+
+        const clone = response.clone();
+        const data = await response.json();
+        // Same rule as the page: never let a degraded response clobber a good
+        // cache.
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const cache = await caches.open(WORDS_CACHE);
+        await cache.put(WORDS_URL, clone);
+    } catch (e) {
+        // Offline or transient failure — the next sync or page load retries.
+    }
+}
+
+self.addEventListener('periodicsync', event => {
+    if (event.tag === 'refresh-words') {
+        event.waitUntil(refreshWords());
+    }
+});
 
 self.addEventListener('fetch', event => {
     // Only cache GET requests

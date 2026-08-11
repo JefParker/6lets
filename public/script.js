@@ -1422,26 +1422,146 @@ function readOfflineWords() {
     }
 }
 
+// Shared with sw.js — the service worker refreshes this cache from periodic
+// background sync; the page mirrors its own successful fetches into it and
+// falls back to it when the network is down. Keep the names in sync.
+const WORDS_CACHE_NAME = 'sixlets-words-v1';
+const WORDS_URL = '/api/words';
+
+// Array items are { id, word: base64 } for the plaintext tier and
+// { id, sealed: {...} } for the extended tier (see resolveSealedWord).
 async function fetchOfflineWords() {
+    let data = null;
+
     try {
-        const response = await fetch('/api/words');
-        if (!response.ok) return;
+        const response = await fetch(WORDS_URL);
+        if (response.ok) {
+            const parsed = await response.json();
+            // Never let a degraded response clobber a good cache. An empty
+            // list means "we couldn't tell you" far more often than "there
+            // are no words", and overwriting on it drops every player onto
+            // the retry panel mid-game.
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                data = parsed;
+                // Mirror into the words cache so this copy and the service
+                // worker's background-refreshed one are the same store.
+                if (typeof caches !== 'undefined') {
+                    try {
+                        const cache = await caches.open(WORDS_CACHE_NAME);
+                        await cache.put(WORDS_URL, new Response(JSON.stringify(parsed), {
+                            headers: { 'Content-Type': 'application/json' }
+                        }));
+                    } catch (e) {
+                        console.warn('Could not mirror words into cache', e);
+                    }
+                }
+            } else if (Array.isArray(parsed)) {
+                console.warn('Word list came back empty; keeping cached words.');
+            }
+        }
+    } catch (e) {
+        console.error('Failed to fetch offline words', e);
+    }
 
-        const data = await response.json(); // Array of { id, word: base64 }
-        if (!Array.isArray(data)) return;
+    // Offline or failed: the service worker may have background-refreshed the
+    // cache more recently than localStorage was written.
+    if (!data && typeof caches !== 'undefined') {
+        try {
+            const cache = await caches.open(WORDS_CACHE_NAME);
+            const cached = await cache.match(WORDS_URL);
+            if (cached) {
+                const parsed = await cached.json();
+                if (Array.isArray(parsed) && parsed.length > 0) data = parsed;
+            }
+        } catch (e) {
+            console.warn('Could not read cached words', e);
+        }
+    }
 
-        // Never let a degraded response clobber a good cache. An empty list
-        // means "we couldn't tell you" far more often than "there are no
-        // words", and overwriting on it drops every player onto the offline
-        // fallback word mid-game.
-        if (data.length === 0) {
-            console.warn('Word list came back empty; keeping cached words.');
+    if (data) safeStorage.setItem('offline_words', JSON.stringify(data));
+}
+
+// Mirrors lib/wordseal.js on the server — keep the two in sync. Recovers the
+// withheld low bits of the key by brute force (~2^bits hashes against the
+// verifier), then decrypts. Yields to the event loop periodically so the
+// search never janks the page.
+async function unsealWord(sealed) {
+    const b64bytes = (str) => {
+        const bin = atob(str);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+    };
+
+    const partial = b64bytes(sealed.key);
+    const verifier = b64bytes(sealed.v);
+    const packed = b64bytes(sealed.ct);
+    const iv = packed.slice(0, 12);
+    const ct = packed.slice(12);
+
+    const max = 1 << sealed.bits;
+    const cand = new Uint8Array(partial);
+    for (let v = 0; v < max; v++) {
+        if ((v & 2047) === 2047) await new Promise(r => setTimeout(r, 0));
+
+        cand[31] = v & 0xff;
+        if (sealed.bits > 8) cand[30] = partial[30] | ((v >> 8) & 0xff);
+
+        const h = new Uint8Array(await crypto.subtle.digest('SHA-256', cand));
+        let match = true;
+        for (let i = 0; i < 32; i++) {
+            if (h[i] !== verifier[i]) { match = false; break; }
+        }
+        if (!match) continue;
+
+        const key = await crypto.subtle.importKey('raw', cand, 'AES-GCM', false, ['decrypt']);
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+        return new TextDecoder().decode(plain);
+    }
+    return null;
+}
+
+// The extended tier: if today's word is only cached sealed, unseal it (a
+// sub-second one-off) and rewrite the cache entry as plaintext so every later
+// load of this game is instant.
+async function resolveSealedWord() {
+    if (targetWordResolved) return;
+
+    const entry = readOfflineWords().find(w => w && w.id === gameId && w.sealed);
+    if (!entry) return;
+
+    try {
+        const word = (await unsealWord(entry.sealed) || '').toUpperCase();
+        if (word.length !== WORD_LENGTH) {
+            console.warn('Unsealed word for', gameId, 'is not', WORD_LENGTH, 'letters.');
             return;
         }
 
-        safeStorage.setItem('offline_words', JSON.stringify(data));
+        targetWord = word;
+        targetWordResolved = true;
+
+        const rewritten = readOfflineWords().map(w =>
+            (w && w.id === gameId) ? { id: gameId, word: btoa(word) } : w);
+        safeStorage.setItem('offline_words', JSON.stringify(rewritten));
     } catch (e) {
-        console.error('Failed to fetch offline words', e);
+        console.warn('Could not unseal word for', gameId, e);
+    }
+}
+
+// Ask the browser to top up the word cache roughly daily even when the app is
+// closed (Chromium installed-PWA feature; a no-op elsewhere, where page-load
+// fetches do the refreshing).
+async function registerWordRefresh() {
+    try {
+        if (!('serviceWorker' in navigator)) return;
+        const registration = await navigator.serviceWorker.ready;
+        if (!('periodicSync' in registration)) return;
+        await registration.periodicSync.register('refresh-words', {
+            minInterval: 12 * 60 * 60 * 1000
+        });
+    } catch (e) {
+        // Permission or support missing — fine, the app still refreshes on
+        // every open.
     }
 }
 
@@ -1469,10 +1589,11 @@ function resolveInterruptedGame() {
 }
 
 function determineTargetWord() {
-    const match = readOfflineWords().find(w => w && w.id === gameId);
+    // Plaintext entries only — sealed ones are resolveSealedWord's job.
+    const match = readOfflineWords().find(w => w && w.id === gameId && w.word);
     if (!match) {
-        console.warn('No word cached for', gameId, '- using offline fallback.');
-        return; // Fallback is 'SODIUM' defined at the top
+        console.warn('No plaintext word cached for', gameId);
+        return;
     }
 
     try {
@@ -1848,6 +1969,8 @@ function hideWordLoadError() {
 async function startGame() {
     await fetchOfflineWords();
     determineTargetWord();
+    // Not in the plaintext tier — maybe the sealed one covers it.
+    if (!targetWordResolved) await resolveSealedWord();
 
     if (gameState === 'playing' && !targetWordResolved) {
         showWordLoadError();
@@ -1893,6 +2016,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     startGame().catch(e => console.warn('Initialization error:', e));
+    registerWordRefresh();
 });
 
 // === ADMIN DASHBOARD LOGIC ===
