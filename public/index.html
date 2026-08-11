@@ -227,7 +227,10 @@
     <div id="admin-dashboard-modal" class="modal hidden" style="width: 95%; max-width: 600px; max-height: 90vh; padding: 20px 15px; overflow-y: auto;">
         <button id="close-admin-dashboard-btn" class="close-btn" aria-label="Close">✖</button>
         <div id="dashboard-word-container" class="bouncy-word-container" style="margin-bottom: 20px;"></div>
-        
+
+        <!-- Scheduling runway: filled in by loadRunway() in script.js. -->
+        <div id="runway-indicator" style="text-align: center; margin: -10px 0 15px; font-size: 0.95rem; color: var(--modal-color); opacity: 0.85;"></div>
+
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
             <button id="prev-month" style="background: none; border: none; color: var(--modal-color); cursor: pointer; font-size: 1.2rem; padding-right: 15px;">&laquo;</button>
             <h2 id="month-display" style="margin: 0; font-size: 1.2rem; color: var(--modal-color);"></h2>
@@ -399,6 +402,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=47"></script>
+    <script src="script.js?v=48"></script>
 </body>
 </html>

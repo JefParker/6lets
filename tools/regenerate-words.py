@@ -41,11 +41,25 @@ USAGE
 -----
     python3 tools/regenerate-words.py --start 2026-07-27 --days 120
 
-Review the output, then apply:
+Review the output, then apply (NOT with `wrangler d1 execute --file` — the
+bulk-import endpoint it uses is refused on this account, see the header of
+tools/migrate.sh):
 
-    npx wrangler d1 execute sixlets-db --remote --file=./seed.local.sql --yes
+    bash tools/migrate.sh seed.local.sql --remote
 
 NEVER commit the output. It is the answer key.
+
+POOL MODE
+---------
+    python3 tools/regenerate-words.py --emit-pool
+
+Writes pool.local.sql: INSERT OR IGNORE statements seeding the AnswerPool
+table (see migrations/0002_answer_pool.sql) with every eligible word — common,
+in the dictionary, not burned. The server's automatic runway top-up draws from
+that table; a pooled word already present in DailyWords is skipped at pick
+time, so re-emitting after schedule changes is always safe. Pool membership is
+public anyway (COMMON_WORDS is committed), so this output is not an answer
+key — but it is generated, so it stays gitignored rather than committed.
 
 NEVER run the old seed.sql against production: it opens with
 `DELETE FROM DailyWords;`, and Results carries a foreign key to
@@ -388,13 +402,56 @@ def game_ids(start, days):
         yield '%s-PM' % stamp
 
 
+def emit_pool():
+    """Write pool.local.sql seeding AnswerPool for the automatic runway
+    top-up. Words already scheduled are NOT excluded here: the server's pick
+    query skips anything present in DailyWords, so availability has exactly
+    one source of truth and re-emitting is always safe."""
+    out_path = os.path.join(ROOT, 'pool.local.sql')
+
+    dictionary = read_dictionary()
+    burned = read_burned([])
+
+    raw = COMMON_WORDS.split()
+    common = {w.upper() for w in raw if len(w) == 6}
+    usable = common & dictionary
+    eligible = sorted(usable - burned)
+
+    lines = [
+        '-- 6Lets answer pool seed. GENERATED FILE -- DO NOT COMMIT.',
+        '-- Pool membership is public (COMMON_WORDS is committed); this file',
+        '-- is gitignored because it is generated, not because it is secret.',
+        '--',
+        '-- INSERT OR IGNORE only: re-running never duplicates or deletes.',
+        '',
+    ]
+    for word in eligible:
+        lines.append("INSERT OR IGNORE INTO AnswerPool (word) VALUES ('%s');" % word)
+
+    with open(out_path, 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(lines) + '\n')
+
+    print('  common words listed        : %d' % len(raw))
+    print('  excluded as already public : %d' % len(usable & burned))
+    print('  pool candidates written    : %d' % len(eligible))
+    print('')
+    print('  wrote %s' % os.path.relpath(out_path, ROOT))
+    print('')
+    print('  Apply with:')
+    print('    bash tools/migrate.sh pool.local.sql --remote')
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--start', required=True,
+    parser.add_argument('--start',
                         help='first date to regenerate, YYYY-MM-DD. Must be '
-                             'tomorrow or later.')
+                             'tomorrow or later. Required unless --emit-pool.')
+    parser.add_argument('--emit-pool', action='store_true',
+                        help='instead of a schedule, write pool.local.sql '
+                             'seeding the AnswerPool table for the automatic '
+                             'runway top-up.')
     parser.add_argument('--days', type=int, default=120,
                         help='how many days to schedule (2 puzzles each). Default 120.')
     parser.add_argument('--out', default=os.path.join(ROOT, 'seed.local.sql'),
@@ -403,6 +460,12 @@ def main():
                         help='extra file of uppercase words to avoid. Repeatable.')
     args = parser.parse_args()
 
+    if args.emit_pool:
+        emit_pool()
+        return
+
+    if not args.start:
+        sys.exit('--start is required (or use --emit-pool)')
     try:
         start = datetime.datetime.strptime(args.start, '%Y-%m-%d').date()
     except ValueError:
@@ -492,8 +555,9 @@ def main():
     if backup:
         print('  previous schedule kept as %s' % os.path.relpath(backup, ROOT))
     print('')
-    print('  Review it, then apply:')
-    print('    npx wrangler d1 execute sixlets-db --remote --file=./%s --yes'
+    print('  Review it, then apply (NOT with `wrangler d1 execute --file` — '
+          'its endpoint is refused on this account):')
+    print('    bash tools/migrate.sh %s --remote'
           % os.path.relpath(args.out, ROOT))
     print('')
     print('  Do not commit that file.')

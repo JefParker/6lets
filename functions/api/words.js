@@ -1,5 +1,6 @@
 import { getCurrentGameId } from '../../lib/puzzle.js';
 import { sealWord } from '../../lib/wordseal.js';
+import { ensureRunway } from '../../lib/runway.js';
 
 // Two tiers, one array:
 //
@@ -27,6 +28,16 @@ export async function onRequestGet(context) {
     const currentGameId = getCurrentGameId();
 
     try {
+        // Keep the schedule at the 40-day floor before reading it, so a
+        // top-up is reflected in this very response. Failure here must never
+        // take down the feed the game boots from — the dashboard's runway
+        // indicator is where a struggling top-up becomes visible.
+        try {
+            await ensureRunway(env);
+        } catch (e) {
+            console.error('ensureRunway failed:', e);
+        }
+
         const { results } = await env.DB.prepare(
             "SELECT id, word FROM DailyWords WHERE id >= ? ORDER BY id ASC LIMIT ?"
         ).bind(currentGameId, PLAINTEXT_WINDOW + SEALED_WINDOW).all();

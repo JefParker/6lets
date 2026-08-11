@@ -9,7 +9,7 @@
 //
 // node:sqlite ships with Node (22.5+) so this adds no dependency.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -111,11 +111,15 @@ class D1Like {
 export function createTestDatabase() {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON;');
-    // schema.sql first, then the migration — the order they reached production
-    // in. Together they give the full database: game tables (Users,
-    // DailyWords, Results) and the admin/session tables.
+    // schema.sql first, then every migration in order — the order they
+    // reached production in. Together they give the full database: game
+    // tables (Users, DailyWords, Results, AnswerPool) and the admin/session
+    // tables.
     db.exec(readFileSync(join(REPO_ROOT, 'schema.sql'), 'utf8'));
-    db.exec(readFileSync(join(REPO_ROOT, 'migrations', '0001_admin_auth_and_sessions.sql'), 'utf8'));
+    const migrationsDir = join(REPO_ROOT, 'migrations');
+    for (const file of readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort()) {
+        db.exec(readFileSync(join(migrationsDir, file), 'utf8'));
+    }
     return { db, env: { DB: new D1Like(db) } };
 }
 

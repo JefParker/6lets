@@ -2349,10 +2349,48 @@ function enterDashboard() {
     document.getElementById('admin-dashboard-modal').classList.remove('hidden');
     animateBouncyWord('dashboard-word-container', 'DASHBOARD');
     renderAdminCalendar();
+    loadRunway();
 
     if (passkeysSupported()) {
         document.getElementById('admin-passkeys-section').style.display = 'block';
         loadPasskeys();
+    }
+}
+
+// The scheduling runway line at the top of the dashboard. Words used to run
+// out silently; now the auto-top-up (lib/runway.js) holds the 40-day floor
+// and this line is where its health — and the pool it draws from — is seen.
+async function loadRunway() {
+    const el = document.getElementById('runway-indicator');
+    if (!el) return;
+    el.textContent = '';
+
+    try {
+        const res = await fetch('/api/dashboard/runway');
+        if (!res.ok) return;
+        const r = await res.json();
+
+        const okColor = 'var(--correct-color, #2e7d32)';
+        const warn = r.days < 14 ? '#d32f2f' : (r.days < r.targetDays ? '#e6a817' : okColor);
+        const through = r.scheduledThrough ? r.scheduledThrough.replace(/-(AM|PM)$/, ' $1') : 'nothing scheduled';
+
+        el.innerHTML = '';
+        const line = document.createElement('div');
+        line.style.color = warn;
+        line.style.fontWeight = r.days < r.targetDays ? 'bold' : 'normal';
+        line.textContent = `Words scheduled: ${r.days} days (through ${through})`;
+        const pool = document.createElement('div');
+        pool.style.fontSize = '0.85em';
+        pool.style.opacity = '0.8';
+        pool.textContent = `${r.poolAvailable} words left in the auto-top-up pool`;
+        if (r.poolAvailable < 100) {
+            pool.style.color = '#d32f2f';
+            pool.textContent += ' — refill with regenerate-words.py --emit-pool';
+        }
+        el.appendChild(line);
+        el.appendChild(pool);
+    } catch (e) {
+        // The indicator is advisory; a failed load just leaves it blank.
     }
 }
 

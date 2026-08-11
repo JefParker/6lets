@@ -16,6 +16,15 @@ CREATE TABLE IF NOT EXISTS DailyWords (
     word TEXT NOT NULL
 );
 
+-- Curated answer candidates for the automatic schedule top-up. Seeded via
+-- regenerate-words.py --emit-pool; drawn from by lib/runway.js when the
+-- runway drops below the 40-day floor. A candidate is available while it
+-- appears nowhere in DailyWords — availability is derived, never stored.
+-- (Also in migrations/0002_answer_pool.sql, the file that reached production.)
+CREATE TABLE IF NOT EXISTS AnswerPool (
+    word TEXT PRIMARY KEY CHECK (length(word) = 6)
+);
+
 CREATE TABLE IF NOT EXISTS Results (
     id TEXT PRIMARY KEY, -- e.g. UUID for the result itself
     user_uuid TEXT NOT NULL,

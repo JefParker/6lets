@@ -41,14 +41,10 @@ set -o pipefail
 
 [ -f wrangler.toml ] || die "not in the 6Lets project root"
 
-FILE="${1:-}"
-[ -n "$FILE" ] || die "usage: bash tools/migrate.sh <file.sql> [--remote] [--preview] [--yes]"
-[ -r "$FILE" ] || die "cannot read: $FILE"
-shift
-
 DB_NAME=$(db_name)
 [ -n "$DB_NAME" ] || die "could not read database_name from wrangler.toml"
 
+FILES=()
 REMOTE=""
 PREVIEW=""
 ASSUME_YES=""
@@ -63,8 +59,14 @@ for arg in "$@"; do
     # true.
     --preview) PREVIEW="--preview" ;;
     --yes)     ASSUME_YES=1 ;;
-    *) die "unknown option: $arg" ;;
+    --*)       die "unknown option: $arg" ;;
+    *)         FILES+=("$arg") ;;
   esac
+done
+
+[ "${#FILES[@]}" -gt 0 ] || die "usage: bash tools/migrate.sh <file.sql> [more.sql ...] [--remote] [--preview] [--yes]"
+for FILE in "${FILES[@]}"; do
+  [ -r "$FILE" ] || die "cannot read: $FILE"
 done
 
 # The preview uuid lives in wrangler.toml twice — preview_database_id (what
@@ -82,18 +84,12 @@ if [ -n "$PREVIEW" ]; then
         while deploys read the other helps nobody. Fix wrangler.toml first."
 fi
 
-SQL=$(cat "$FILE") || die "could not read $FILE"
-case "$SQL" in
-  *[![:space:]]*) : ;;
-  *) die "$FILE is empty — refusing to report an empty migration as applied" ;;
-esac
-
 if [ -z "$REMOTE" ]; then
   warn "no --remote: this will run against the LOCAL development database"
 fi
 
 echo
-echo "  file:     $FILE"
+printf '  file:     %s\n' "${FILES[@]}"
 echo "  database: ${DB_NAME} ${PREVIEW:+(preview) }${REMOTE:-(local)}"
 
 if [ -z "$ASSUME_YES" ] && [ -t 0 ]; then
@@ -104,15 +100,24 @@ fi
 
 # </dev/null so wrangler can never read the terminal or a caller's piped stdin
 # mid-run (an npx install prompt answered by whatever happens to be on stdin).
-if ! npx wrangler d1 execute "$DB_NAME" $REMOTE $PREVIEW --command="$SQL" </dev/null; then
-  die "migration failed — fix it and re-run; statements in migrations/ are
-        idempotent by convention, so re-running is safe.
+for FILE in "${FILES[@]}"; do
+  SQL=$(cat "$FILE") || die "could not read $FILE"
+  case "$SQL" in
+    *[![:space:]]*) : ;;
+    *) die "$FILE is empty — refusing to report an empty migration as applied" ;;
+  esac
+
+  printf '\n%s>>> %s%s\n' "$BLD" "$FILE" "$RST"
+  if ! npx wrangler d1 execute "$DB_NAME" $REMOTE $PREVIEW --command="$SQL" </dev/null; then
+    die "migration failed at $FILE — fix it and re-run; statements in
+        migrations/ are idempotent by convention, so re-running is safe.
         If this was error 10000 or 7403, try 'wrangler login'. Do not trust
         'wrangler whoami' to tell you whether that helped — it reports the
         scopes cached at last login, not what the token grants now."
-fi
+  fi
+done
 
-ok "applied $FILE"
+ok "applied: ${FILES[*]}"
 
 cat <<NEXT
 

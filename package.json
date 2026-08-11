@@ -12,8 +12,8 @@
     "db:schema": "wrangler d1 execute sixlets-db --file=schema.sql",
     "db:reset": "wrangler d1 execute sixlets-db --file=reset.sql",
     "//db:migrate": "Goes through tools/migrate.sh rather than `wrangler d1 execute --file` — the header of tools/migrate.sh explains why --file is unusable on this account.",
-    "db:migrate:preview": "bash tools/migrate.sh migrations/0001_admin_auth_and_sessions.sql --remote --preview",
-    "db:migrate": "bash tools/migrate.sh migrations/0001_admin_auth_and_sessions.sql --remote",
+    "db:migrate:preview": "bash tools/migrate.sh migrations/0*.sql --remote --preview",
+    "db:migrate": "bash tools/migrate.sh migrations/0*.sql --remote",
     "//deploy:safe": "Migrations before the deploy, chained with && — new code selects columns that do not exist yet, so a deploy that outruns its schema 500s on every affected route while the static pages render perfectly. The reverse order is safe.",
     "deploy:safe": "npm run db:migrate && wrangler pages deploy"
   },
