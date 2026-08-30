@@ -1911,6 +1911,50 @@ document.getElementById('update-uuid-btn').addEventListener('click', async () =>
     }
 });
 
+// Install button. Chromium browsers fire beforeinstallprompt once the page
+// meets the installability criteria (HTTPS, a valid manifest with 192/512 icons,
+// a controlling service worker); Safari and Firefox never fire it and use
+// their own share-sheet / menu flow, so the button stays hidden there.
+let deferredInstallPrompt = null;
+
+function setInstallSectionVisible(visible) {
+    const section = document.getElementById('install-app-section');
+    if (section) section.classList.toggle('hidden', !visible);
+}
+
+window.addEventListener('beforeinstallprompt', event => {
+    // Keep the browser's own mini-infobar from appearing on mobile; we surface
+    // the prompt from Settings instead.
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    setInstallSectionVisible(true);
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    setInstallSectionVisible(false);
+    showToast('6Lets installed');
+});
+
+document.getElementById('install-app-btn').addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    const promptEvent = deferredInstallPrompt;
+    // The event is single-use; a second call to prompt() throws.
+    deferredInstallPrompt = null;
+    try {
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome !== 'accepted') {
+            // Dismissed: the browser will fire beforeinstallprompt again on a
+            // later visit, so hide the button for now rather than offering a
+            // dead one.
+            setInstallSectionVisible(false);
+        }
+    } catch (e) {
+        setInstallSectionVisible(false);
+    }
+});
+
 // Init
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

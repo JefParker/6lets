@@ -561,7 +561,7 @@ header {
    consumer gets a scoped rule like the ones above. The word-load-error panel
    and the board (hidden while the panel shows) are toggled by
    show/hideWordLoadError in script.js. */
-#word-load-error.hidden, #board.hidden {
+#word-load-error.hidden, #board.hidden, #install-app-section.hidden {
     display: none;
 }
 

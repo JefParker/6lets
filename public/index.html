@@ -25,12 +25,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <link rel="apple-touch-icon" href="img/6lets192.png">
+    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
     <link rel="icon" type="image/x-icon" href="img/6lets.ico">
     <link rel="icon" type="image/png" sizes="192x192" href="img/6lets192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="img/6lets512.png">
 
-    <link rel="stylesheet" href="style.css?v=45">
+    <link rel="stylesheet" href="style.css?v=46">
 </head>
 <body>
     <div id="game-container">
@@ -388,6 +388,15 @@
                 <button id="update-uuid-btn" style="background: darkred; color: white; border: none; padding: 8px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px; display: none;">Update Player ID</button>
             </div>
 
+            <!-- Shown only when the browser fires beforeinstallprompt (see
+                 script.js). Stays hidden in browsers without that event and
+                 once the app is already installed. -->
+            <div id="install-app-section" class="hidden" style="margin-bottom: 20px;">
+                <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Install App</div>
+                <div style="font-size: 1rem; margin-bottom: 10px;">Add 6Lets to your home screen to play offline in its own window.</div>
+                <button id="install-app-btn" style="background: darkred; color: white; border: none; padding: 8px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px;">Install 6Lets</button>
+            </div>
+
             <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 5px;">Syncing Devices</div>
             <div style="font-size: 1rem; margin-bottom: 10px;">Want to sync your progress from another device?</div>
             <ol style="margin: 0; padding-left: 20px; font-size: 1rem; line-height: 1.5; margin-bottom: 20px;">
@@ -402,6 +411,6 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
     <script src="dictionary.js"></script>
-    <script src="script.js?v=49"></script>
+    <script src="script.js?v=50"></script>
 </body>
 </html>
