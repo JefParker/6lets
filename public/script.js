@@ -1573,6 +1573,12 @@ async function syncDown(force = false) {
                 safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
             }
 
+            // The server has every result, so its streak is the real figure;
+            // the ten-game record here can only put a floor under a stored one.
+            if (adoptedServerSnapshot && typeof stats['6lets_streak'] === 'number') {
+                safeStorage.setItem('6lets_streak', stats['6lets_streak']);
+                safeStorage.setItem('6lets_lastCompletedPuzzle', stats['6lets_lastCompletedPuzzle'] || 0);
+            }
             reconcileStreak(getPuzzleNumber(gameId));
 
             if (stats.display_name !== undefined) {

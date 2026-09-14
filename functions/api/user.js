@@ -1,4 +1,4 @@
-import { getPuzzleNumber } from '../../lib/puzzle.js';
+import { getPuzzleNumber, playedStreak } from '../../lib/puzzle.js';
 
 const MAX_DISPLAY_NAME_LENGTH = 24;
 
@@ -52,6 +52,7 @@ export async function onRequestGet(context) {
         let cloudGameState = null;
         let cloudTimeTakenMs = null;
         let seenGameIds = new Set();
+        const puzzleNumbers = [];
 
         for (const row of results) {
             if (seenGameIds.has(row.game_id)) {
@@ -75,6 +76,9 @@ export async function onRequestGet(context) {
                 unfinishedGames++;
             }
 
+            const num = getPuzzleNumber(row.game_id);
+            if (num !== null) puzzleNumbers.push(num);
+
             if (recentGames.length < 10) {
                 const puzzleNum = getPuzzleNumber(row.game_id);
                 if (puzzleNum !== null) {
@@ -84,12 +88,15 @@ export async function onRequestGet(context) {
             }
         }
 
+        const { streak, lastPlayed } = playedStreak(puzzleNumbers, game_id ? getPuzzleNumber(game_id) : null);
         const stats = {
             '6lets_distribution': JSON.stringify(guessDistribution),
             '6lets_completed': completedGames,
             '6lets_unfinished': unfinishedGames,
             '6lets_totalGuesses': totalGuessesFinished,
-            '6lets_recentGames': JSON.stringify(recentGames)
+            '6lets_recentGames': JSON.stringify(recentGames),
+            '6lets_streak': streak,
+            '6lets_lastCompletedPuzzle': lastPlayed
         };
 
         const userRow = await env.DB.prepare('SELECT display_name FROM Users WHERE uuid = ?').bind(uuid).first();
