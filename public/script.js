@@ -153,10 +153,6 @@ if (needsResave) {
     safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
 }
 
-let initialStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
-if (initialStreak > completedGames) {
-    safeStorage.setItem('6lets_streak', completedGames);
-}
 
 // Initialize board
 function renderBoard() {
@@ -417,57 +413,57 @@ function getPuzzleNumber(gameIdStr) {
     return PUZZLE_EPOCH_NUMBER + (diffDays * 2) + (ampm === 'AM' ? 0 : 1);
 }
 
-// Rebuild the streak from recorded history.
-//
-// `anchorPuzzle` is the puzzle the player is currently on. The recovered run
-// must reach up to it (or the puzzle immediately before it, for a streak that
-// is intact but today is unplayed) — otherwise the run is stale history and
-// must NOT be used, or it would silently resurrect a streak that was correctly
-// broken by a missed puzzle.
-function autoRecoverStreak(rGames, currentStreak, anchorPuzzle) {
-    if (!rGames || rGames.length === 0) return currentStreak;
-    if (typeof anchorPuzzle !== 'number' || !Number.isFinite(anchorPuzzle)) return currentStreak;
+// The streak is a plain count: puzzles finished in a row, won or lost, up to
+// the last one you finished. A puzzle you skipped, or left unfinished when the
+// next one arrived, breaks it. The last ten finished puzzles (recentGames) are
+// the record; the stored count only matters for a streak longer than that.
+function setStreakBadge(value) {
+    const el = document.getElementById('history-btn-text');
+    if (el) el.textContent = value;
+}
 
-    const completedPuzzles = [];
-    for (let i = 0; i < rGames.length; i++) {
-        const game = rGames[i];
-        if (typeof game !== 'string') continue;
-        if (game.includes("- X guesses")) continue;
-        const match = game.match(/^#(\d+) /);
-        if (match) {
-            completedPuzzles.push(parseInt(match[1], 10));
+function reconcileStreak(currentPuzzle) {
+    const played = [];
+    for (const game of recentGames) {
+        const m = typeof game === 'string' && game.match(/^#(\d+) /);
+        if (m) played.push(parseInt(m[1], 10));
+    }
+    played.sort((a, b) => b - a);
+
+    let last = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
+    if (played.length && played[0] > last) last = played[0];
+    let streak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+
+    if (currentPuzzle !== null && last > 0 && currentPuzzle > last + 1) {
+        streak = 0;                                   // a puzzle went by unplayed
+    } else if (played.length) {
+        let run = 0;
+        for (const n of played) {
+            if (n === played[0] - run) run++;
+            else if (n !== played[0] - run + 1) break;  // a gap; duplicates are skipped
         }
+        // With fewer than the limit on record, or a gap inside it, the run is
+        // the whole streak. A full, unbroken record only puts a floor under it.
+        const complete = recentGames.length < RECENT_GAMES_LIMIT || run < played.length;
+        streak = complete ? run : Math.max(streak, run);
     }
 
-    if (completedPuzzles.length === 0) return currentStreak;
+    safeStorage.setItem('6lets_streak', streak);
+    safeStorage.setItem('6lets_lastCompletedPuzzle', last);
+    setStreakBadge(streak);
+    return streak;
+}
 
-    completedPuzzles.sort((a, b) => b - a);
-
-    // The most recent completed puzzle must be the current one or the one right
-    // before it. Anything older means at least one puzzle was missed.
-    const mostRecent = completedPuzzles[0];
-    if (mostRecent < anchorPuzzle - 1) return currentStreak;
-
-    let calcStreak = 1;
-    let expectedNext = mostRecent - 1;
-
-    for (let i = 1; i < completedPuzzles.length; i++) {
-        if (completedPuzzles[i] === expectedNext) {
-            calcStreak++;
-            expectedNext--;
-        } else {
-            break;
-        }
-    }
-
-    // Fix for legacy capped recentGames: if the entire recorded history is consecutive,
-    // it got capped at 10 (the old limit), and no games were failed,
-    // their true streak may equal completedGames.
-    if (calcStreak === completedPuzzles.length && calcStreak >= 10 && unfinishedGames === 0 && completedGames > calcStreak) {
-        calcStreak = completedGames;
-    }
-
-    return Math.max(currentStreak, calcStreak);
+// Called once a puzzle is finished either way and is in recentGames. Extends
+// the stored count when this is the next puzzle in line, so a streak longer
+// than the record keeps growing; then the record has the final say.
+function streakOnFinish(puzzleNum) {
+    if (puzzleNum === null) return;
+    const last = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
+    const streak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
+    if (puzzleNum === last + 1) safeStorage.setItem('6lets_streak', streak + 1);
+    else if (puzzleNum > last + 1) safeStorage.setItem('6lets_streak', 1);
+    reconcileStreak(puzzleNum);
 }
 
 function checkWinCondition() {
@@ -489,35 +485,8 @@ function checkWinCondition() {
         const winMessages = ['Genius!', 'Magnificent!', 'Impressive!', 'Splendid!', 'Great!', 'Phew!'];
         showToast(winMessages[guesses.length - 1] || 'Good job!');
         
-        let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
-        let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
-        
-        if (puzzleNum !== null) {
-            if (lastCompletedPuzzle === 0 || puzzleNum === lastCompletedPuzzle + 1) {
-                // First ever solve, or the immediate next puzzle: extend the streak.
-                currentStreak++;
-            } else if (puzzleNum > lastCompletedPuzzle + 1) {
-                // Skipped one or more puzzles: streak restarts at this solve.
-                currentStreak = 1;
-            } else {
-                // puzzleNum <= lastCompletedPuzzle: replaying/back-filling an older
-                // puzzle. Don't touch the streak (and never double-count).
-            }
+        streakOnFinish(puzzleNum);
 
-            currentStreak = autoRecoverStreak(recentGames, currentStreak, puzzleNum);
-        }
-
-        if (currentStreak > completedGames) {
-            currentStreak = completedGames;
-        }
-
-        safeStorage.setItem('6lets_streak', currentStreak);
-        if (puzzleNum !== null) {
-            safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompletedPuzzle, puzzleNum));
-        }
-        const historyBtnText = document.getElementById('history-btn-text');
-        if (historyBtnText) historyBtnText.textContent = currentStreak;
-        
         safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
         safeStorage.setItem('6lets_completed', completedGames);
         const density = Math.max(10, 200 - (guesses.length * 15));
@@ -543,17 +512,8 @@ function checkWinCondition() {
             if (recentGames.length > RECENT_GAMES_LIMIT) recentGames.length = RECENT_GAMES_LIMIT;
         }
         unfinishedGames++;
+        streakOnFinish(puzzleNum);   // a loss is still a puzzle played
 
-        safeStorage.setItem('6lets_streak', 0);
-        if (puzzleNum !== null) {
-            // Only ever move the marker forward — replaying an older puzzle
-            // must not rewind it.
-            const lastCompleted = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
-            safeStorage.setItem('6lets_lastCompletedPuzzle', Math.max(lastCompleted, puzzleNum));
-        }
-        const historyBtnText = document.getElementById('history-btn-text');
-        if (historyBtnText) historyBtnText.textContent = '0';
-        
         showToast(`${targetWord} - Better luck next time.`);
         updateHeaderIconToStats();
         finishGame();
@@ -1197,41 +1157,7 @@ function loadState() {
         startTime = null;
     }
 
-    // Check if missed a puzzle to break streak
-    let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
-    let lastCompletedPuzzle = parseInt(safeStorage.getItem('6lets_lastCompletedPuzzle')) || 0;
-    const currentPuzzle = getPuzzleNumber(gameId);
-    
-    if (gameState === 'playing' && currentPuzzle !== null && lastCompletedPuzzle > 0 && currentPuzzle > lastCompletedPuzzle + 1) {
-        safeStorage.setItem('6lets_streak', 0);
-        currentStreak = 0;
-
-        if (recentGames.length > RECENT_GAMES_LIMIT) {
-            recentGames.length = RECENT_GAMES_LIMIT;
-            safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
-        }
-    }
-
-    // Auto-recover the streak from recent games if it was incorrectly lost.
-    // Anchored to the current puzzle: without that anchor this ran right after
-    // the reset above and simply restored the streak it had just broken, since
-    // the old consecutive run is still sitting in recentGames.
-    const recentGamesStr = safeStorage.getItem('6lets_recentGames');
-    if (recentGamesStr && currentPuzzle !== null) {
-        try {
-            const rGames = JSON.parse(recentGamesStr);
-            const calcStreak = autoRecoverStreak(rGames, 0, currentPuzzle);
-            if (calcStreak > currentStreak) {
-                currentStreak = calcStreak;
-                safeStorage.setItem('6lets_streak', currentStreak);
-            }
-        } catch (e) {
-            console.warn('Could not parse recent games', e);
-        }
-    }
-    
-    const historyBtnText = document.getElementById('history-btn-text');
-    if (historyBtnText) historyBtnText.textContent = currentStreak;
+    reconcileStreak(getPuzzleNumber(gameId));
 }
 
 // Pause the timer whenever the page goes away. `pagehide` covers the cases
@@ -1647,13 +1573,7 @@ async function syncDown(force = false) {
                 safeStorage.setItem('6lets_recentGames', JSON.stringify(recentGames));
             }
 
-            let currentStreak = parseInt(safeStorage.getItem('6lets_streak')) || 0;
-            if (currentStreak > completedGames) {
-                currentStreak = completedGames;
-                safeStorage.setItem('6lets_streak', currentStreak);
-                const historyBtnText = document.getElementById('history-btn-text');
-                if (historyBtnText) historyBtnText.textContent = currentStreak;
-            }
+            reconcileStreak(getPuzzleNumber(gameId));
 
             if (stats.display_name !== undefined) {
                 safeStorage.setItem('6lets_display_name', stats.display_name);
