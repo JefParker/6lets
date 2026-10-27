@@ -1,4 +1,4 @@
-import { GAME_ID_PATTERN } from '../../lib/puzzle.js';
+import { GAME_ID_PATTERN, getCurrentGameId, nextGameIds } from '../../lib/puzzle.js';
 
 const MAX_BATCH_RECORDS = 100;
 const MAX_GUESSES = 10;
@@ -73,7 +73,11 @@ export async function onRequestPost(context) {
         // so an unknown game_id would abort the whole (atomic) batch. Because
         // the client clears its queue on any 2xx, one such record used to jam
         // syncing forever — so bad records are dropped here rather than fataled.
-        const candidates = resultsArray.filter(isValidRecord);
+        // Clients are handed the next few half-days of words ahead of time,
+        // so a result for a game that has not opened yet is not a game
+        // anyone played. One half-day of slack covers a clock running ahead.
+        const latestOpen = nextGameIds(getCurrentGameId(), 2)[1];
+        const candidates = resultsArray.filter(res => isValidRecord(res) && res.game_id <= latestOpen);
         let skipped = resultsArray.length - candidates.length;
 
         // The words come along with the ids so solved_successfully can be

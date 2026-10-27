@@ -68,13 +68,18 @@ export async function onRequestGet(context) {
         });
     }
 
+    // The caller's own uuid, if sent, marks its row as isMe; names are not
+    // unique, so matching on them would light up every namesake. The uuid
+    // itself stays out of the response.
+    const uuidParam = url.searchParams.get('uuid');
+
     try {
         // DailyWords is joined rather than queried separately so scoring the
         // grids costs no extra round trip. LEFT JOIN keeps the leaderboard
         // working if the word row is ever missing — those rows just get a null
         // pattern instead of failing.
         const { results } = await env.DB.prepare(
-            `SELECT u.display_name, r.guesses_taken, r.time_taken_ms, r.guesses, d.word
+            `SELECT r.user_uuid, u.display_name, r.guesses_taken, r.time_taken_ms, r.guesses, d.word
              FROM Results r
              LEFT JOIN Users u ON r.user_uuid = u.uuid
              LEFT JOIN DailyWords d ON d.id = r.game_id
@@ -92,7 +97,8 @@ export async function onRequestGet(context) {
             display_name: row.display_name,
             guesses_taken: row.guesses_taken,
             time_taken_ms: row.time_taken_ms,
-            pattern: buildPattern(row.guesses, (row.word || '').toUpperCase())
+            pattern: buildPattern(row.guesses, (row.word || '').toUpperCase()),
+            isMe: uuidParam !== null && row.user_uuid === uuidParam
         }));
 
         return new Response(JSON.stringify({ leaderboard }), {
