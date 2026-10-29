@@ -8,7 +8,9 @@
 CREATE TABLE IF NOT EXISTS Users (
     uuid TEXT PRIMARY KEY,
     display_name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- See migrations/0003_ip_tag.sql.
+    ip_tag TEXT
 );
 
 CREATE TABLE IF NOT EXISTS DailyWords (
