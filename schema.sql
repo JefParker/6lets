@@ -8,9 +8,7 @@
 CREATE TABLE IF NOT EXISTS Users (
     uuid TEXT PRIMARY KEY,
     display_name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    -- See migrations/0003_ip_tag.sql.
-    ip_tag TEXT
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS DailyWords (
@@ -139,3 +137,11 @@ CREATE TABLE IF NOT EXISTS AdminSessions (
 -- (Keep a statement last: wrangler warns about a "leftover buffer" if the file
 -- ends with comment text after the final semicolon.)
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_user ON AdminSessions(user_id);
+
+-- Leaderboard tag for unnamed players ("Anonymous-244"): the last part of a
+-- player's first IP address seen, never the whole address. See
+-- migrations/0003_player_tags.sql and lib/anon.js.
+CREATE TABLE IF NOT EXISTS PlayerTags (
+    uuid TEXT PRIMARY KEY,
+    ip_tag TEXT NOT NULL
+);

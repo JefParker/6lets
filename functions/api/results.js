@@ -1,4 +1,5 @@
 import { GAME_ID_PATTERN, getCurrentGameId, nextGameIds } from '../../lib/puzzle.js';
+import { ipTag } from '../../lib/anon.js';
 
 const MAX_BATCH_RECORDS = 100;
 const MAX_GUESSES = 10;
@@ -107,6 +108,12 @@ export async function onRequestPost(context) {
         const userStmt = env.DB.prepare(
             "INSERT INTO Users (uuid) VALUES (?) ON CONFLICT(uuid) DO NOTHING"
         );
+        // The first address seen stays the player's leaderboard tag, so
+        // "Anonymous-244" doesn't change from day to day (lib/anon.js).
+        const tag = ipTag(request);
+        const tagStmt = env.DB.prepare(
+            "INSERT INTO PlayerTags (uuid, ip_tag) VALUES (?, ?) ON CONFLICT(uuid) DO NOTHING"
+        );
 
         const batch = [];
         let accepted = 0;
@@ -139,6 +146,7 @@ export async function onRequestPost(context) {
             }
 
             batch.push(userStmt.bind(res.user_uuid)); // Ensure user exists
+            if (tag) batch.push(tagStmt.bind(res.user_uuid, tag));
             batch.push(stmt.bind(
                 crypto.randomUUID(), // Generate new UUID for the result record
                 res.user_uuid,

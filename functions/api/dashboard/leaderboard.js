@@ -1,4 +1,5 @@
 import { GAME_ID_PATTERN } from '../../../lib/puzzle.js';
+import { boardName } from '../../../lib/anon.js';
 
 const MAX_PATTERN_ROWS = 10;
 const WORD_LENGTH = 6;
@@ -79,9 +80,10 @@ export async function onRequestGet(context) {
         // working if the word row is ever missing — those rows just get a null
         // pattern instead of failing.
         const { results } = await env.DB.prepare(
-            `SELECT r.user_uuid, u.display_name, r.guesses_taken, r.time_taken_ms, r.guesses, d.word
+            `SELECT r.user_uuid, u.display_name, t.ip_tag, r.guesses_taken, r.time_taken_ms, r.guesses, d.word
              FROM Results r
              LEFT JOIN Users u ON r.user_uuid = u.uuid
+             LEFT JOIN PlayerTags t ON t.uuid = r.user_uuid
              LEFT JOIN DailyWords d ON d.id = r.game_id
              WHERE r.game_id = ? AND r.solved_successfully = 1
              ORDER BY
@@ -94,7 +96,7 @@ export async function onRequestGet(context) {
         // `guesses` and `word` are dropped here: the response carries only the
         // derived pattern, never anything the answer can be read out of.
         const leaderboard = results.map(row => ({
-            display_name: row.display_name,
+            display_name: boardName(row.display_name, row.ip_tag),
             guesses_taken: row.guesses_taken,
             time_taken_ms: row.time_taken_ms,
             pattern: buildPattern(row.guesses, (row.word || '').toUpperCase()),
