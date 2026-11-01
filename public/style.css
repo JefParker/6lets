@@ -672,6 +672,24 @@ header {
     font-size: 1.2rem;
 }
 
+.new-home {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 15px;
+    font-size: 1.1rem;
+}
+.new-home-btn {
+    background: var(--key-bg-enter);
+    color: var(--key-color);
+    padding: 8px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 1.1rem;
+}
+
 /* Shown in the stats modal only after SYNC_FAILURE_WARN_THRESHOLD consecutive
    failed result syncs. Deliberately quiet — it explains a missing leaderboard
    entry, it is not an error the player can act on. */
